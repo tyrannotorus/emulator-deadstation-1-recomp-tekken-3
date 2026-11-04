@@ -17,9 +17,9 @@
     "Controls: every button can be remapped, set in Options."
   ],
   "changelog": [
-    "Now Tekken 3 Remastered.",
-    "Fixes the fight's lighting left over on the menus and movies.",
-    "Fewer leaks in the storm hall."
+    "Same pace as the emulator: 59.85 Hz.",
+    "Sound is never stretched, and no longer tied to the frame rate.",
+    "CD music reads ahead, so it can't run out."
   ],
   "repo": "https://github.com/tyrannotorus/emulator-deadstation-1-recomp-tekken-3"
 }

@@ -1830,6 +1830,7 @@ int psx_native_track_count(void);
 uint32_t psx_native_track_start(int track);
 uint32_t psx_native_disc_sectors(void);
 void psx_native_xa_start(void);
+double spu_cd_pace(void);
 void psx_native_xa_sector(const uint8_t *raw);
 void psx_native_cdda_sector(const uint8_t *raw);
 void psx_native_cd_mix(uint8_t l_to_l, uint8_t l_to_r, uint8_t r_to_r, uint8_t r_to_l);
@@ -2410,7 +2411,8 @@ void onDriveVBlank()
 		bnsFinish();
 	if (!drive.streaming)
 		return;
-	drive.budget = std::min(drive.budget + (drive.audioTrack ? 1.25f : (drive.mode & 0x80) ? 2.5f : 1.25f), 16.f);
+	// (as fast as the CD's sound is being played: sound doesn't go by frames. A console's 75 sectors a second at a 60 Hz blank)
+	drive.budget = std::min(drive.budget + (drive.audioTrack ? 1.25f : (drive.mode & 0x80) ? 2.5f : 1.25f) * (float)spu_cd_pace(), 16.f);
 	discWake.notify_one();
 	while (drive.budget >= 1.f && drive.streaming)
 	{
