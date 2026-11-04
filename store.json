@@ -12,12 +12,15 @@
     "Shadows: the fighters cast their shadows on the floor along the stage's sun.",
     "Lighting: the fighters shade themselves and each other pixel by pixel.",
     "Spark Lighting: every hit spark lights the fighters and the floor, set in Options.",
-    "Stage moods and flavour: torches, storms, mist, snow, embers and more.",
+    "Stage moods and flavour: a golden dawn, torches, rain, mist, snow, embers and more.",
     "Fight GUI and Unlock Everything, set in Options.",
     "Controls: every button can be remapped, set in Options."
   ],
   "changelog": [
-    "First release."
+    "YOU LOSE, CONTINUE and the menus in front of the fighters.",
+    "A golden dawn on Law's stage, no leaves.",
+    "Rain on Lei's stage; a leaking roof in the storm hall.",
+    "The advanced lighting is now always on."
   ],
   "repo": "https://github.com/tyrannotorus/emulator-deadstation-1-recomp-tekken-3"
 }
