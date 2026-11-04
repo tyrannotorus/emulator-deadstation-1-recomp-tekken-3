@@ -1,0 +1,23 @@
+{
+  "description": "Tekken 3 (Namco, 1998), recompiled for the TrimUI Brick.",
+  "formats": [
+    {
+      "format": "CHD",
+      "region": "USA",
+      "sha1": "319ec7377eb0c3ef0b6049e440937d26ae743290"
+    }
+  ],
+  "features": [
+    "Resolution: the game's own, or twice it on the Brick's 1024x768 screen, set in Options.",
+    "Shadows: the fighters cast their shadows on the floor along the stage's sun.",
+    "Lighting: the fighters shade themselves and each other pixel by pixel, set in Options.",
+    "Spark Lighting: every hit spark lights the fighters and the floor, set in Options.",
+    "Stage moods and flavour: torches, storms, mist, snow, embers and more.",
+    "Fight GUI and Unlock Everything, set in Options.",
+    "Controls: every button can be remapped, set in Options."
+  ],
+  "changelog": [
+    "First release."
+  ],
+  "repo": "https://github.com/tyrannotorus/emulator-deadstation-1-recomp-tekken-3"
+}

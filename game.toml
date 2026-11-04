@@ -1,0 +1,70 @@
+# Autofilled by tools/new_project_layout/probe_disc.py from your legal dump.
+# Review before shipping. Runtime quirks / overlay seeds still need hand work.
+
+[game]
+name = "Tekken 3"
+id = "SLUS-00402"
+players = 2
+exe = "disc/SLUS_004.02"
+disc = "disc/tekken3.cue"
+load_address = "0x80010000"
+entry_pc = "0x80079C70"
+text_size = "0x00121000"
+stack_base = "0x801FFFF0"
+
+# Digests are for data Track 01 (first BINARY FILE / TRACK 01).
+[prepare_disc]
+out_dir = "disc"
+bin_name = "tekken3 (Track 1).bin"
+cue_name = "tekken3.cue"
+boot_exe = "SLUS_004.02"
+known_sizes = [632532768]
+known_md5 = [
+  "42c63a4674f569de7b1be95d7332cde2",
+]
+known_sha1 = [
+  "68f32a8657376cb4d4504c160fd5e8ae4a4f18d6",
+]
+known_crc32 = [
+  "8131af42",
+]
+
+[recompiler]
+seeds = "seeds/ghidra_funcs.txt"
+bios_config = "sdk/psxrecomp/bios/SCPH1001.toml"
+# the module's plugin (src/plugin.cpp) hooks these functions' entries
+mod_function_entry_funcs = ["0x8003172C", "0x80035F2C", "0x80036CAC", "0x8007C998", "0x8007C650", "0x8007C710", "0x80085B20", "0x8006C084",
+    "0x800946A8", "0x800926F8", "0x80092EB4", "0x80092718", "0x80092F80", "0x80092784", "0x80092844", "0x8009293C", "0x80092A10",
+    "0x80092AB8", "0x80092AF0", "0x80092B38", "0x800926D8", "0x8004CE54", "0x800296C4",
+    "0x800859A8", "0x80029A28",
+    "0x8008EBD8", "0x8008ED1C", "0x8008EE28", "0x8008EE48", "0x8008F08C", "0x8008F3DC", "0x80090AE8", "0x8008F5CC", "0x8008F660", "0x8008F6F0",
+    "0x8008F73C", "0x8008F74C", "0x8008F76C", "0x80090A88", "0x80090AA8", "0x80090AC8", "0x80090CF8", "0x80090D20", "0x80090D88", "0x80090DF8",
+    "0x80091458", "0x80091558", "0x80091F38", "0x80091FBC", "0x80092020", "0x8009268C", "0x800926A0", "0x800926B4", "0x80084CE8", "0x8006C23C",
+    "0x80081D68", "0x8003B5C4", "0x8003B71C", "0x80081CD8",
+    "0x80048FF8", "0x80049848", "0x80036AF8", "0x8006CC28"]
+out_dir = "generated"
+strict = true
+
+[runtime]
+window_title = "Tekken 3 recomp module"
+memcard_dir = "saves"
+overlay_cache = true
+# Overlays load inside the boot EXE's text range (0x800B1000, 0x800C0000-0x80111000, over its
+# packed tail); everything above the resident code (which ends at 0x8009B9A8) is overlay region.
+overlay_region_floor = "0xB0000"
+
+[video]
+renderer = "opengl"
+aspect_ratio = "4:3"
+
+[controller]
+default_mode = "digital"
+# the first gamepad (the Brick's): a build without PSXRecomp's debug tools defaults player 1 to the keyboard
+p1_device = "auto"
+
+# Online mount gate: digests + track count + optional TOC fingerprint
+# (see docs/NETPLAY.md).
+[netplay]
+require_cue = true
+required_tracks = 3
+required_disc_fp = "d6179326b7eaaccf6de7e1f6bda382be57ee87221f9425dc9401639171f56c19"

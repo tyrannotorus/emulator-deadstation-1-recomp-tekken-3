@@ -1,0 +1,21 @@
+format_version = 7
+id = "deadstation.tekken3"
+version = "0.1.0"
+name = "Deadstation for Tekken 3"
+author = "Deadstation"
+description = "Deadstation's additions to the Tekken 3 recomp module."
+license = "PolyForm-Noncommercial-1.0.0"
+resolver = "declarative"
+
+[[target]]
+game_id = "SLUS-00402"
+
+[[feature]]
+id = "enhancements"
+name = "Deadstation enhancements"
+description = "Deadstation's hooks in the game (its enhancements build on them)."
+default_enabled = true
+
+[[plugin]]
+feature = "enhancements"
+id = "deadstation.tekken3"

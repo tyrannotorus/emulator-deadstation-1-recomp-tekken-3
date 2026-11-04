@@ -1,0 +1,46 @@
+# address	name	evidence
+0x80028BA0	main	called from _start; init, then the per-frame mode switch on game_mode (0x800AE204)
+0x800B0548	game_init	first call of main: CD, pads, graphics, mode = 0
+0x8006AB64	cd_init	DsInit; DsSearchFile for TEKKEN3.BNS and TEKKEN3.XAS
+0x8006BF20	bns_queue_read	(file id, dest): id via remap 0x80098574 to index 0x80024400 (sector, size); sorted read list
+0x8006C084	bns_start_reads	issues the queued reads as one DsPacket chain
+0x8006C23C	bns_reads_pending	nonzero while queued reads run
+0x8006BEA8	bns_reset_queue	waits for and clears the read queue
+0x80052958	bns_queue_moveset	file id 0x4A + moveset (0x49: the common bank)
+0x80031CBC	container_section	u32 count; {offset,size}[]: pointer to section n
+0x80031CF0	container_section_size	size of section n
+0x80077590	container_section_alt	same as container_section (bounds-checked)
+0x8002CE14	moveset_relocate	moves (0x38 bytes): motion, side tables and common-bank pointers made absolute
+0x80069E2C	moveset_slot_of	which loaded bank slot (0/1) holds a moveset
+0x80069EA4	moveset_relocate_header	the bank header's 13 section offsets made absolute
+0x80036310	fighter_load_variant	BNS ids 95+4v..98+4v: 3DMK, VAB header, container, moveset bank
+0x80035BC0	fighter_setup_model	TIM upload, 3DMK relocation, part slots
+0x80035744	fighter_upload_tims	TIM chain to VRAM: pixels x+0x180, CLUT y+0x1F8 (player 2: +256 / +4)
+0x80034EE4	model_relocate	3DMK record offsets made absolute; hand tables
+0x80035190	part_build_packets	prefills POLY_FT3/FT4/GT3/GT4 packets: CLUT, tpage and UVs from the texture block
+0x80035908	part_slot_init	slot -> record/bone tables 0x8001A05C/0x8001A074; parent bone link; joint offset
+0x8003C250	bone_set_parent	bone +0x40 = parent matrix
+0x80037924	fighter_draw_parts	22 slots in order: light/rot/trans from the bone, part_draw per mesh
+0x80036CAC	part_draw	vertex program (imports, RTPT, seam blends, exports), NCCT lighting, polygon packets
+0x80034970	fighter_hand_shapes	per hand: shape index from fighter state, part_set_hand_shape
+0x80034844	part_set_hand_shape	swaps a hand record's vertex block from its 41-entry table
+0x8003A87C	fighter_animate	motion channels -> pose -> bones -> render, per fighter per frame
+0x800389C0	motion_eval_root	root position channels 0-2 of a move's motion at a frame
+0x80038B4C	motion_eval_channels	all 49 channels of a move's motion at a frame (odd channels read time reversed)
+0x800387C8	motion_curve	delta-coded key spline (5-bit interval, 11-bit delta << channel shift) with basis tables 0x8009671C
+0x80038970	motion_scale_root	root position * fighter scale (4.12)
+0x8003AD10	pose_from_channels	10 joint rotations + root + four two-bone IK limbs into the pose array
+0x8003A338	rot_matrix_xyz	rotation matrix from three 16-bit angles (sin/cos tables 0x8001E8C4/0x8001F0C4, GPF)
+0x8003B5C4	comp_matrix	out = parent * local (rotation via MVMVA, translation via MAC + parent)
+0x8003BA28	ik_target_local	IK target into the limb root's frame
+0x8003BCA8	ik_two_bone	two-bone IK with fixed leg / arm lengths
+0x8003AFCC	fighter_build_bones	pose array (+ blend deltas) through the bone hierarchy into world and view matrices
+0x8003C270	fighter_motion_blend	on a move change: per-bone deltas old pose -> new pose, decayed over frames
+0x80032C74	fighter_replay_motion	records / plays back the animation state for replays
+0x8002AE58	fight_step	one fight frame: input, moves, motion, collision, hits, camera, draw
+0x80050428	mode_fight	game mode 8: round setup, fight_step each frame, round/match end
+0x8003CB84	round_flow	round states: intro, fight, KO/time, replay, next round
+0x80032178	replay_step	replay buffer state machine
+0x8002BCE8	fighter_control	per fighter: player (0), CPU (1) or demo (2) control
+0x80059890	cpu_think	the CPU opponent's decisions (uses rand)
+0x8003B4F8	fighter_render	shadow + part drawing for one fighter
