@@ -2884,7 +2884,7 @@ void addSplash(FighterList& list, const View& view, float x, float z, float t, f
 
 // The hall on Julia's and Heihachi's stage is under a roof, the storm beyond its windows: so it doesn't rain in here, it leaks. A few places in the roof over the fighters, each letting go a
 // drop at its own beat, straight down, each drop ringing out where it lands. The leaks are fixed in the world, in a block repeated over the floor, as the floor's pattern is.
-constexpr int LeakStage = 12, Leaks = 9;
+constexpr int LeakStage = 12, Leaks = 7;
 constexpr float LeakTile = 5200.f, LeakHeight = 4600.f;
 void addLeaks(FighterList& list, const View& view, int32_t worldX, int32_t worldZ, float midX, float midZ)
 {
