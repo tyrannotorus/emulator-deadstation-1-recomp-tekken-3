@@ -808,11 +808,13 @@ void finishFloor(deadstation::scene::Frame& f)
 
 // A new game frame's layer begun when the packet set changes; the frame's header (the sun, the flashes) with its first
 // part. The projection and the camera's vertical scale (its row 1's length) back; false: no projection yet.
+bool sceneHeaderDone = false, modelsThisFrame = false, layerCleared = true;
 bool sceneFrame(struct CPUState *cpu, float& ofx, float& ofy, float& h, float& yScale)
 {
-	static bool headerDone = false;
+	bool& headerDone = sceneHeaderDone;
 	static float headerOfx, headerOfy, headerH, headerY;
 	const uint32_t set = rw(PacketSet) & 1;
+	modelsThisFrame = true;
 	if (headerDone && set == sceneSet)
 	{
 		ofx = headerOfx, ofy = headerOfy, h = headerH, yScale = headerY;
@@ -1569,6 +1571,19 @@ void applyUnlocks()
 int onFrameEnd(CPUState *, uint32_t)
 {
 	frameSerial++;
+	// A frame with no fighters in it: no layer of them either. The presenter draws the latest it was given on whatever's showing, so what's published must end when they do,
+	// or the last fight's bodies, shadows and lights stay on the title, the scores and the movies.
+	if (modelsThisFrame)
+		layerCleared = false;
+	else if (!layerCleared)
+	{
+		layerCleared = true;
+		building = deadstation::scene::Frame {};
+		sceneHeaderDone = false;
+		deadstation::scene::Frame none;
+		deadstation::scene::publish(none);
+	}
+	modelsThisFrame = false;
 	flavourClock++;
 	patchMoods();
 	applyUnlocks();
@@ -3141,6 +3156,45 @@ int onFloorLit(CPUState *cpu, uint32_t)
 	return floorGrid(cpu, cpu->gpr[31], midX + tileSize / 2, midZ + tileSize / 2, lit);
 }
 
+// DEADSTATION_TEKKEN3_STAGECHECK (tests): each backdrop vertex here against what the GTE's RTPT makes of it, its saturations and all
+bool stageCheck = false;
+struct StageCheck { uint32_t vertices = 0, far = 0, clampedView = 0, clampedScreen = 0, clampedRatio = 0, off2 = 0, off8 = 0; float worst = 0, zMost = 0; } stageChecked;
+void checkAgainstGte(const CPUState *cpu, int x, int y, int z, const NativeCornerOut& mine)
+{
+	const uint32_t *g = cpu->gte_ctrl;
+	const int64_t r11 = lo16(g[0]), r12 = hi16(g[0]), r13 = lo16(g[1]), r21 = hi16(g[1]), r22 = lo16(g[2]), r23 = hi16(g[2]), r31 = lo16(g[3]), r32 = hi16(g[3]), r33 = lo16(g[4]);
+	const int64_t mac1 = ((int64_t)(int32_t)g[5] * 4096 + r11 * x + r12 * y + r13 * z) >> 12;
+	const int64_t mac2 = ((int64_t)(int32_t)g[6] * 4096 + r21 * x + r22 * y + r23 * z) >> 12;
+	const int64_t mac3 = ((int64_t)(int32_t)g[7] * 4096 + r31 * x + r32 * y + r33 * z) >> 12;
+	const int64_t ir1 = std::clamp<int64_t>(mac1, -32768, 32767), ir2 = std::clamp<int64_t>(mac2, -32768, 32767);
+	const int64_t sz = std::clamp<int64_t>(mac3, 0, 65535), h = (uint16_t)g[26];
+	int64_t ratio = sz > 0 ? (h * 0x20000 / sz + 1) / 2 : 0x1FFFF;
+	stageChecked.vertices++;
+	if (mac3 <= 0)
+	{
+		stageChecked.far++;
+		return;
+	}
+	if (ratio > 0x1FFFF)
+		ratio = 0x1FFFF, stageChecked.clampedRatio++;
+	if (ir1 != mac1 || ir2 != mac2 || sz != mac3)
+		stageChecked.clampedView++;
+	const int64_t sx = ((int64_t)(int32_t)g[24] + ir1 * ratio) >> 16, sy = ((int64_t)(int32_t)g[25] + ir2 * ratio) >> 16;
+	const int64_t csx = std::clamp<int64_t>(sx, -1024, 1023), csy = std::clamp<int64_t>(sy, -1024, 1023);
+	if (csx != sx || csy != sy)
+		stageChecked.clampedScreen++;
+	const float dx = (float)csx - mine.sx, dy = (float)csy - mine.sy, off = std::max(std::fabs(dx), std::fabs(dy));
+	stageChecked.worst = std::max(stageChecked.worst, off), stageChecked.zMost = std::max(stageChecked.zMost, (float)mac3);
+	stageChecked.off2 += off > 2.f, stageChecked.off8 += off > 8.f;
+	static uint32_t tellAt = 0;
+	if (frameSerial >= tellAt)
+	{
+		tellAt = frameSerial + 60;
+		std::fprintf(stderr, "deadstation stagecheck: stage %d: %u vertices, behind %u; view clamped %u, ratio %u, screen %u; off by over 2 px %u, over 8 px %u, worst %.1f; farthest %.0f; camera r %d %d %d t %d %d %d h %d\n", currentStage, stageChecked.vertices, stageChecked.far, stageChecked.clampedView, stageChecked.clampedRatio, stageChecked.clampedScreen, stageChecked.off2, stageChecked.off8, (double)stageChecked.worst, (double)stageChecked.zMost, (int)r31, (int)r32, (int)r33, (int)(int32_t)g[5], (int)(int32_t)g[6], (int)(int32_t)g[7], (int)h);
+		stageChecked = StageCheck {};
+	}
+}
+
 // a backdrop cell's vertices: kept here (the game's next call, its polygons, reads them from the scratchpad on the PlayStation)
 int onBackdropVertices(CPUState *cpu, uint32_t)
 {
@@ -3155,6 +3209,9 @@ int onBackdropVertices(CPUState *cpu, uint32_t)
 		return 0;
 	for (int32_t i = 0; i < count; i++)
 		view.project(p + (uint32_t)i * 8, stageVertices[i]);
+	if (stageCheck)
+		for (int32_t i = 0; i < count; i++)
+			checkAgainstGte(cpu, ramHalf(p + (uint32_t)i * 8), ramHalf(p + (uint32_t)i * 8 + 2), ramHalf(p + (uint32_t)i * 8 + 4), stageVertices[i]);
 	backdropReady = true;
 	return 1;
 }
@@ -3311,6 +3368,7 @@ struct Registration
 		if (const char *test = std::getenv("DEADSTATION_TEKKEN3_TESTLIGHTS"))
 			testLights = std::atoi(test);
 		testStrike = std::getenv("DEADSTATION_TEKKEN3_TESTSTRIKE") != nullptr;
+		stageCheck = std::getenv("DEADSTATION_TEKKEN3_STAGECHECK") != nullptr;
 		noMoods = std::getenv("DEADSTATION_SDK_OFF") != nullptr && std::strstr(std::getenv("DEADSTATION_SDK_OFF"), "moods") != nullptr;
 		if (const char *stage = std::getenv("DEADSTATION_TEKKEN3_STAGE"))
 			forceStage = std::atoi(stage);

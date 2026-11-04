@@ -241,11 +241,19 @@ bool SceneLight::init(const Target& t, std::string& error)
 	return true;
 }
 
+static constexpr int StaleAfter = 8;		// pages shown: a game running slow gets a new layer sooner than this
 void SceneLight::prepare(vk::CommandBuffer cmd, uint32_t page)
 {
 	Slot& s = slots[page % slots.size()];
 	s.count = s.floorCount = s.floorBase = 0;
 	deadstation::scene::take(scene);
+	// (the same layer again and again: the game has gone on to something that doesn't end its frames as a fight does, a movie. It isn't what's on the screen)
+	static uint64_t lastSerial = 0;
+	static int sameFor = 0;
+	sameFor = scene.serial == lastSerial ? sameFor + 1 : 0;
+	lastSerial = scene.serial;
+	if (sameFor > StaleAfter)
+		return;
 	const uint32_t count = std::min<uint32_t>((uint32_t)scene.corners.size() / 3 * 3, MaxCorners / 3 * 3);
 	if (count == 0 || scene.width <= 0 || scene.height <= 0)
 		return;
