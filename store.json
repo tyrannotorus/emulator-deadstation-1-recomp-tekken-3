@@ -10,7 +10,7 @@
   "features": [
     "Resolution: the game's own, or twice it on the Brick's 1024x768 screen, set in Options.",
     "Shadows: the fighters cast their shadows on the floor along the stage's sun.",
-    "Lighting: the fighters shade themselves and each other pixel by pixel, set in Options.",
+    "Lighting: the fighters shade themselves and each other pixel by pixel.",
     "Spark Lighting: every hit spark lights the fighters and the floor, set in Options.",
     "Stage moods and flavour: torches, storms, mist, snow, embers and more.",
     "Fight GUI and Unlock Everything, set in Options.",

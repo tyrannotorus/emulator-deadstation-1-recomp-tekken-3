@@ -7,15 +7,15 @@
 // instead (the angles the game lights the fighters with), so the shadows fall where the light comes from.
 //
 // Shadows that darken the floor: the game draws them as solid polygons in the stage's shadow colour, hiding the
-// floor's texture. The 3D layer draws them instead, along the sun, whatever the Lighting: the game's chain comes out of the
+// floor's texture. The 3D layer draws them instead, along the sun: the game's chain comes out of the
 // ordering table and the floor darkens where the sun is blocked. Not a choice: the only shadows the module supports.
 //
 // The fight's sparks as lights (Spark Lighting, 0-10, applied at once): on the fighters and the floor, each casting its own
-// planar shadows of the fighters on the floor (sdk/brick/shaders/scene_cast.vert), as many as there are sparks.
+// planar shadows of the fighters on the floor (src/shaders/scene_cast.vert), as many as there are sparks.
 //
 // Lighting per part: self-shadowing and the hit flashes as coloured lights (below, at part_draw).
 //
-// DEADSTATION_TEKKEN3_LIGHTING=original keeps the game's own lighting; DEADSTATION_TEKKEN3_STATS logs counts.
+// DEADSTATION_TEKKEN3_STATS logs counts.
 #include "cpu_state.h"
 #include "mod_plugins.h"
 #include "../sdk/brick/host_link.h"
@@ -84,7 +84,6 @@ constexpr uint32_t FighterShadowMesh = 0x1274;		// fighter -> its shadow mesh (+
 
 bool stats = false;
 unsigned statShadows = 0, statPolygons = 0, statParts = 0;
-bool lighting = true;
 bool sceneCapture = false;		// the fighters' 3D layer for the presenter (per-pixel self-shadowing)
 uint32_t gameColours[5];	// the game's LC (0x8009E5C0), as the GTE packs it
 void readGameColours();
@@ -115,7 +114,7 @@ int onShadowProjection(struct CPUState *cpu, uint32_t)
 
 void onAfterShadow(struct CPUState *cpu, uint32_t)
 {
-	if (lighting && cpu->gpr[31] == AfterShadowReturn)
+	if (cpu->gpr[31] == AfterShadowReturn)
 	{
 		readGameColours();
 		std::memcpy(&cpu->gte_ctrl[16], gameColours, sizeof(gameColours));
@@ -232,7 +231,7 @@ void readGameColours()
 
 void relight(struct CPUState *cpu)
 {
-	if (!lighting || cpu->gpr[31] != PartDrawReturn)
+	if (cpu->gpr[31] != PartDrawReturn)
 		return;
 	// the presenter's layer lights the flashes and the self-shadowing per pixel: here only the game's colours, its second
 	// light off (no world positions, matrices or inverses for it)
@@ -259,7 +258,7 @@ bool inPartDraw = false;
 float drawnFloor[4] = { 0, 0, 0, 0 };	// the floor's grid as the game drew it this frame, in the world: x0, x1, z0, z1
 bool drawnFloorFresh = false;			// (none drawn natively: no limit)
 
-// ---- Stage moods (Lighting: Enhanced) ----
+// ---- Stage moods ----
 //
 // One fixed mood per stage, made of what the game already lights with: its record of the stage's lights (0x80096C78: the sun's
 // colour and angles and the ambient, patched once before any stage loads, so the fighters, the sun's shadows and the game's own
@@ -375,7 +374,7 @@ bool noMoods = false;		// DEADSTATION_SDK_OFF=moods: the stages as the game ligh
 
 const Mood *currentMood()
 {
-	if (!lighting || noMoods)
+	if (noMoods)
 		return nullptr;
 	for (const Mood& m : Moods)
 		if (m.stage == currentStage)
@@ -386,7 +385,7 @@ const Mood *currentMood()
 // the moods into the game's records, once, before a stage loads
 void patchMoods()
 {
-	if (moodsPatched || !lighting || noMoods)
+	if (moodsPatched || noMoods)
 		return;
 	moodsPatched = true;
 	for (const Mood& m : Moods)
@@ -497,7 +496,7 @@ void flashes(deadstation::scene::Frame& f, const float cam[9], float yScale, flo
 	};
 	Flash found[SparkSlots + 1 + 4 + 3 + 1 + Fireworks];
 	unsigned n = 0;
-	const float gain = lighting ? sparkGain() : 0.f;
+	const float gain = sparkGain();
 	const int effectFrames = (int32_t)rw(EffectLightFrames);
 	Flash *effect = nullptr;
 	// the colour of the fighter's own spark that brought the effect light, once one has shown
@@ -647,7 +646,7 @@ void flashes(deadstation::scene::Frame& f, const float cam[9], float yScale, flo
 		}
 	}
 	// a firework opening: its colour on the floor and the fighters, for a moment
-	if (lighting && !noMoods && currentStage == FireworkStage)
+	if (!noMoods && currentStage == FireworkStage)
 	{
 		const float midX = ((int32_t)rw(0x800AA190) + (int32_t)rw(0x800ABA1C)) * 0.5f, midZ = ((int32_t)rw(0x800AA198) + (int32_t)rw(0x800ABA24)) * 0.5f;
 		for (const Firework& fw : fireworks)
@@ -824,7 +823,6 @@ bool sceneFrame(struct CPUState *cpu, float& ofx, float& ofy, float& h, float& y
 		sceneSet = set;
 		if (!building.corners.empty())
 		{
-			building.selfShadow = lighting;
 			if (testLights > 0)
 			{
 				float sum[3] = { 0, 0, 0 };
@@ -3308,8 +3306,6 @@ struct Registration
 		stats = std::getenv("DEADSTATION_TEKKEN3_STATS") != nullptr;
 		psx_mod_register_function_filter_plugin(Id, ShadowProjection, onShadowProjection);
 		psx_mod_register_function_entry_plugin(Id, AfterShadow, onAfterShadow);
-		const char *light = std::getenv("DEADSTATION_TEKKEN3_LIGHTING");
-		lighting = light == nullptr || std::strcmp(light, "original") != 0;
 		if (const char *level = std::getenv("DEADSTATION_TEKKEN3_SPARKS"))
 			sparkLevel = std::clamp(std::atoi(level), 0, 10);
 		if (const char *test = std::getenv("DEADSTATION_TEKKEN3_TESTLIGHTS"))
@@ -3507,11 +3503,6 @@ extern "C" void deadstation_module_setting(const char *key, const char *value)
 			setenv("DEADSTATION_RESOLUTION", "1024", 0);
 			setenv("PSX_INTERNAL_RESOLUTION", "480", 0);
 		}
-	}
-	else if (std::strcmp(key, "lighting") == 0)
-	{
-		if (std::strcmp(value, "original") == 0)
-			setenv("DEADSTATION_TEKKEN3_LIGHTING", "original", 0);
 	}
 	else if (std::strcmp(key, "unlock") == 0)
 	{

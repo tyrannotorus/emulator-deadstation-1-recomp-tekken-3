@@ -16,12 +16,12 @@ The SHA-1 is the CHD header's, shown by `chdman info` as **SHA1**. Other images 
 - **Resolution:** the game drawn at its own resolution, or at twice it on the Brick's 1024x768 screen (Options).
 - **Shadows:** the fighters' bodies cast their shadows on the floor along the stage's sun, each spot of floor
   darkened once by the sun's share of its light, in place of the game's flat black ones. Always on.
-- **Lighting:** the fighters shade themselves and each other from the sun pixel by pixel (Options: Enhanced or Original).
+- **Lighting:** the fighters shade themselves and each other from the sun pixel by pixel.
 - **Spark Lighting:** every hit spark and the game's effect light light the fighters and the floor round them in their
   colours, each casting its own planar shadows of the fighters on the floor, so a hit can throw several shadows at once.
   Options: 0 (none) to 10, applied at once.
 
-- **Stage moods:** with Lighting Enhanced, stages get a fixed mood of their own: a golden dawn in Law's courtyard, a wet
+- **Stage moods:** stages get a fixed mood of their own: a golden dawn in Law's courtyard, a wet
   street on Lei's, torches in the temple, two searchlights patrolling Nina's stage in the dark, a storm with lightning
   beyond the hall's windows, dusk in the schoolyard.
 - **Stage flavour:** something of its own on most stages: rain and mist on Lei's street, mist in the forest and on Nina's stage, snow at the palace, embers in the temple, petals at the school, a leaking roof in the storm hall, fireworks at the amusement park, cloud shadows on the rooftop and more.

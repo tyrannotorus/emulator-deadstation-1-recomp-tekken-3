@@ -14,7 +14,6 @@ layout(std140, set = 1, binding = 1) uniform Params
 	vec4 flashAt;		// xyz: where it is; w: how many lights
 	vec4 lightAt[6];	// the lights (view space), w: where each ends
 	vec4 lightColour[6];	// their colours x strengths
-	vec4 options;		// x: the models' sun shadows on themselves
 	vec4 frameAt;		// xy: the frame's uv offset; zw: its smallest uv
 	vec4 floorPlane;	// the floor: dot(p, xyz) = w, xyz its unit normal, up
 	vec4 project;		// a view space point's place on the game's screen: ofx, ofy, h, the camera's vertical scale

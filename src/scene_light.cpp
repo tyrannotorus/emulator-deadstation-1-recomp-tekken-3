@@ -22,7 +22,6 @@ struct Params
 	float axisU[4], axisV[4], axisS[4], scale[4], screen[4], frameUv[4], light[4];
 	float flashRight[4], flashUp[4], flashAhead[4], flashAt[4];
 	float lightAt[6][4], lightColour[6][4];
-	float options[4];	// x: the models' sun shadows on themselves
 	float frameAt[4];	// xy: the frame's uv offset; zw: its smallest uv
 	float floorPlane[4], project[4];
 	float lightAim[6][4];	// a spotlight's axis, w: the cosine of half its cone (0: light all round)
@@ -330,7 +329,6 @@ void SceneLight::prepare(vk::CommandBuffer cmd, uint32_t page)
 	std::memcpy(p.flashAhead, ahead, sizeof(ahead));
 	p.flashAhead[3] = dist + radius + 100.f;
 	std::memcpy(p.flashAt, at, sizeof(at));
-	p.options[0] = scene.selfShadow ? 1.f : 0.f;
 	std::memcpy(p.floorPlane, scene.floorPlane, sizeof(p.floorPlane));
 	std::memcpy(p.project, scene.project, sizeof(p.project));
 	std::memcpy(s.paramsMapped, &p, sizeof(p));

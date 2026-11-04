@@ -37,7 +37,7 @@ void main()
 	vec3 n = normalize(vNormal);
 	float ndl = max(dot(n, params.axisS.xyz), 0.0);
 	float sunShade = 1.0;
-	if ((pass.floorPass != 0 || params.options.x > 0.0) && ndl > 0.0)
+	if (ndl > 0.0)
 	{
 		float blocked = 1.0 - texture(shadowMap, vec3(sun.xy, min(sun.z - params.light.w, 1.0)));
 		sunShade = mix(1.0, params.light.x / (params.light.x + ndl), blocked * params.light.y);

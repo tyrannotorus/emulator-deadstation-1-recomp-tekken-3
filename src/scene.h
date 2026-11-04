@@ -40,7 +40,6 @@ struct Frame
 	float sun[3] = { 0, -1, 0 };		// toward the sun (view space, unit)
 	float ambient = 0.5f;				// the light a surface keeps in the shade, as a share of the sun's (>= 0)
 	float darkness = 1.0f;				// how much of the sun's share a shadow takes (0: none, 1: all)
-	bool selfShadow = true;				// the models' sun shadows on themselves (Lighting: Original: none)
 	bool flashMap = false;				// lights[0], a passing flash, shadows the models from its map (a stage's lamps do not: a pass every frame)
 	float floorPlane[4] = { 0, -1, 0, 0 };	// the floor in view space: dot(p, xyz) = w, xyz its unit normal, up
 	float project[4] = { 0, 0, 1, 1 };	// a view space point's place on the screen: ofx, ofy, h, the camera's vertical scale
@@ -79,7 +78,6 @@ inline void take(Frame& out)
 	out.ambient = latestFrame().ambient;
 	out.darkness = latestFrame().darkness;
 	out.floorBase = latestFrame().floorBase;
-	out.selfShadow = latestFrame().selfShadow;
 	out.flashMap = latestFrame().flashMap;
 	for (int i = 0; i < 4; i++)
 		out.floorPlane[i] = latestFrame().floorPlane[i], out.project[i] = latestFrame().project[i];
