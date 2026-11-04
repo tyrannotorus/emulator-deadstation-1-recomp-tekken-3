@@ -21,9 +21,9 @@ The SHA-1 is the CHD header's, shown by `chdman info` as **SHA1**. Other images 
   colours, each casting its own planar shadows of the fighters on the floor, so a hit can throw several shadows at once.
   Options: 0 (none) to 10, applied at once.
 
-- **Stage moods:** with Lighting Enhanced, stages get a fixed mood of their own: torches in the temple, lamps on the night
-  dock, a storm with lightning over the ruin, dusk in the schoolyard.
-- **Stage flavour:** something of its own on most stages: mist on Lei's, the forest and the dock, snow at the palace, embers in the temple, petals at the school, rain over the ruin, fireworks at the amusement park, cloud shadows on the rooftop and more.
+- **Stage moods:** with Lighting Enhanced, stages get a fixed mood of their own: torches in the temple, two searchlights
+  patrolling Nina's stage in the dark, a storm with lightning over the ruin, dusk in the schoolyard.
+- **Stage flavour:** something of its own on most stages: mist on Lei's, the forest and Nina's stage, snow at the palace, embers in the temple, petals at the school, rain over the ruin, fireworks at the amusement park, cloud shadows on the rooftop and more.
 - **Fight GUI:** the health bars, timer and names can be hidden (Options, applied at once).
 - **Unlock Everything:** every fighter, costume and mode (Options, applied at once; saved with your game).
 - **Controls:** every button can be remapped, set in Options. `module.cfg` declares them; the SDK's README explains how.

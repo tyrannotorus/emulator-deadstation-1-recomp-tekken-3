@@ -273,6 +273,18 @@ struct Lamp
 	float reach;
 	int flicker;			// 0 steady, 1 a flame, 2 a failing tube
 };
+// A searchlight on its mast: where its lamp stands from the fighters' middle, and the pool of light it patrols the floor with round them
+struct Searchlight
+{
+	float x, y, z;
+	float colour[3];
+	float strength;
+	float reach;
+	float radius;			// of the pool, square on to the beam
+	float sweepX, sweepZ;	// how far it patrols each way
+	float rateX, rateZ;		// how fast (radians a second)
+	float phase;
+};
 struct Mood
 {
 	int stage;
@@ -283,6 +295,8 @@ struct Mood
 	bool lightning;
 	int lamps;
 	Lamp lamp[3];
+	int searchlights;
+	Searchlight searchlight[2];
 };
 constexpr Mood Moods[] = {
 	// the temple: three torches, flickering, shadows swaying; deep shade between them
@@ -290,11 +304,10 @@ constexpr Mood Moods[] = {
 		{ -2600, -2300, -700, { 1.0f, 0.5f, 0.15f }, 11, 5000, true },
 		{ 2600, -2300, -700, { 1.0f, 0.46f, 0.12f }, 11, 5000, true },
 		{ 0, -2500, 2600, { 1.0f, 0.55f, 0.18f }, 9, 5000, true } } },
-	// the night dock: faint cold moonlight, three sodium lamps overhead, the shadows fanning out from under them
-	{ 9, 75, { 0x80, 0x8C, 0xB0 }, -1, { 0.82f, 0.88f, 1.05f }, { 1.05f, 1.0f, 1.0f }, false, 3, {
-		{ -2300, -3000, -1100, { 1.0f, 0.78f, 0.48f }, 20, 5500, false },
-		{ 2400, -3000, -800, { 1.0f, 0.78f, 0.48f }, 20, 5500, false },
-		{ 0, -3000, 2500, { 1.0f, 0.78f, 0.48f }, 17, 5500, false } } },
+	// the guarded yard at night: the main light down, two searchlights patrolling the floor, each throwing its own shadows
+	{ 9, 38, { 0x28, 0x2C, 0x40 }, -1, { 0.36f, 0.4f, 0.56f }, { 0.36f, 0.39f, 0.46f }, false, 0, {}, 2, {
+		{ -5200, -5200, 3400, { 0.92f, 0.96f, 1.f }, 700, 13000, 1700, 2600, 1800, 0.43f, 0.31f, 0.f },
+		{ 5200, -5200, -3400, { 0.92f, 0.96f, 1.f }, 700, 13000, 1700, 2600, 2000, 0.37f, 0.47f, 2.4f } } },
 	// the ruin in the storm: cold light and lightning
 	{ 12, 90, { 0x90, 0xA8, 0xE0 }, -1, { 0.72f, 0.78f, 0.95f }, { 0.74f, 0.8f, 0.95f }, true, 0, {} },
 	// the lab: two cold tubes overhead, one of them failing
@@ -344,6 +357,14 @@ uint32_t cloudShade(uint32_t rgb, float x, float z)
 	return out;
 }
 uint32_t moodClock = 0;
+
+// a searchlight now: its lamp and the point on the floor it aims at
+void searchlightNow(const Searchlight& l, float midX, float midZ, float lamp[3], float aim[3])
+{
+	const float t = (float)moodClock / 60.f;
+	lamp[0] = midX + l.x, lamp[1] = l.y, lamp[2] = midZ + l.z;
+	aim[0] = midX + l.sweepX * std::sin(t * l.rateX + l.phase), aim[1] = 0.f, aim[2] = midZ + l.sweepZ * std::sin(t * l.rateZ + l.phase * 1.7f);
+}
 bool testStrike = false;	// DEADSTATION_TEKKEN3_TESTSTRIKE (tests): the lightning held on, to see it
 bool noMoods = false;		// DEADSTATION_SDK_OFF=moods: the stages as the game lights them
 
@@ -465,6 +486,9 @@ void flashes(deadstation::scene::Frame& f, const float cam[9], float yScale, flo
 		float world[3], colour[3], strength;
 		float reach = FloorReach;
 		bool lamp = false;
+		bool spot = false;			// a searchlight: lights only its cone, down to aim
+		float aim[3] = { 0, 0, 0 };
+		float radius = 0;
 	};
 	Flash found[SparkSlots + 1 + 4 + 3 + 1 + Fireworks];
 	unsigned n = 0;
@@ -591,6 +615,18 @@ void flashes(deadstation::scene::Frame& f, const float cam[9], float yScale, flo
 			f2.reach = l.reach;
 			f2.lamp = true;
 		}
+		for (int k = 0; k < mood->searchlights; k++)
+		{
+			const Searchlight& l = mood->searchlight[k];
+			Flash& f2 = found[n++];
+			searchlightNow(l, midX, midZ, f2.world, f2.aim);
+			for (int i = 0; i < 3; i++)
+				f2.colour[i] = l.colour[i];
+			f2.strength = l.strength;
+			f2.reach = l.reach;
+			f2.radius = l.radius;
+			f2.lamp = f2.spot = true;
+		}
 		if (mood->lightning)
 		{
 			lightningNow = lightningLevel();
@@ -630,19 +666,41 @@ void flashes(deadstation::scene::Frame& f, const float cam[9], float yScale, flo
 	});
 	floorView.valid = false;
 	float x0 = 1e30f, x1 = -1e30f, z0 = 1e30f, z1 = -1e30f;
+	unsigned spots = 0;
+	for (unsigned i = 0; i < n; i++)
+		spots += found[i].spot ? 1 : 0;
 	for (unsigned i = 0; i < n && f.lights.size() < deadstation::scene::MaxLights; i++)
 	{
+		// (room kept for the searchlights: they don't go out in a shower of sparks)
+		if (!found[i].spot && f.lights.size() + spots >= deadstation::scene::MaxLights)
+			continue;
 		float v[3];
 		toView(found[i].world, v);
-		if (v[2] <= 0)
+		// (a searchlight's lamp may stand behind the eye: its pool doesn't)
+		if (v[2] <= 0 && !found[i].spot)
 			continue;
 		const float k = found[i].strength * (found[i].lamp ? 1.f : gain);
 		// out of the point of the hit, toward the eye: a flash inside a body would light nothing and cast everything
 		const float length = std::sqrt(v[0] * v[0] + v[1] * v[1] / (yScale * yScale) + v[2] * v[2]);
 		const float keep = found[i].lamp ? 1.f : length > SparkStandoff * 2 ? 1 - SparkStandoff / length : 0.5f;
 		f.lights.push_back({ v[0] * keep, v[1] / yScale * keep, v[2] * keep, found[i].colour[0] * k, found[i].colour[1] * k, found[i].colour[2] * k, found[i].reach });
-		x0 = std::min(x0, found[i].world[0] - found[i].reach), x1 = std::max(x1, found[i].world[0] + found[i].reach);
-		z0 = std::min(z0, found[i].world[2] - found[i].reach), z1 = std::max(z1, found[i].world[2] + found[i].reach);
+		float atX = found[i].world[0], atZ = found[i].world[2], around = found[i].reach;
+		if (found[i].spot)
+		{
+			float a[3];
+			toView(found[i].aim, a);
+			const float axis[3] = { a[0] - v[0], (a[1] - v[1]) / yScale, a[2] - v[2] };
+			const float beam = std::max(std::sqrt(axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]), 1.f);
+			deadstation::scene::Light& light = f.lights.back();
+			for (int j = 0; j < 3; j++)
+				light.axis[j] = axis[j] / beam;
+			light.cone = beam / std::sqrt(beam * beam + found[i].radius * found[i].radius);
+			// the floor it can light: its pool, drawn out by the beam's slant
+			atX = found[i].aim[0], atZ = found[i].aim[2];
+			around = found[i].radius * 1.2f * beam / std::max(-found[i].world[1], 1.f);
+		}
+		x0 = std::min(x0, atX - around), x1 = std::max(x1, atX + around);
+		z0 = std::min(z0, atZ - around), z1 = std::max(z1, atZ + around);
 	}
 	f.flashMap = n > 0 && !found[0].lamp;
 	std::memcpy(floorView.cam, cam, sizeof(floorView.cam));
@@ -2638,7 +2696,7 @@ constexpr Mist Mists[] = {
 	{ 5, 0x62, 0x62, 0x66, 150.f, 90.f },	// Lei's Hong Kong street: grey, in the distance
 	{ 0, 0x6C, 0x46, 0x22, 130.f, 70.f },	// the city rooftop: amber haze at sunset
 	{ 2, 0x34, 0x48, 0x34, 100.f, 120.f },	// the forest: ground mist among the trees
-	{ 9, 0x30, 0x3C, 0x54, 120.f, 60.f },	// the night dock: sea fog behind the railings
+	{ 9, 0x30, 0x3C, 0x54, 120.f, 60.f },	// the guarded yard: fog along the wall
 };
 
 void addMist(FighterList& list, float horizon)
@@ -2848,10 +2906,50 @@ void addFloats(FighterList& list, const View& view, int32_t worldX, int32_t worl
 	}
 }
 
+// A searchlight's beam in the air: from its lamp to its pool, soft across, over the fighters
+void addBeams(FighterList& list, const View& view, int32_t worldX, int32_t worldZ)
+{
+	const Mood *mood = currentMood();
+	if (mood == nullptr || mood->searchlights == 0)
+		return;
+	const float midX = ((int32_t)rw(0x800AA190) + (int32_t)rw(0x800ABA1C)) * 0.5f, midZ = ((int32_t)rw(0x800AA198) + (int32_t)rw(0x800ABA24)) * 0.5f;
+	for (int k = 0; k < mood->searchlights; k++)
+	{
+		const Searchlight& l = mood->searchlight[k];
+		float lamp[3], aim[3];
+		searchlightNow(l, midX, midZ, lamp, aim);
+		const float px = aim[0] - (float)worldX, pz = aim[2] - (float)worldZ;
+		NativeCornerOut foot, top;
+		if (!view.projectAt(px, 0.f, pz, foot))
+			continue;
+		// (its lamp behind the eye: from where the beam comes into view)
+		bool seen = false;
+		for (float s = 0.f; s < 0.9f && !seen; s += 0.1f)
+			seen = view.projectAt(lamp[0] + (aim[0] - lamp[0]) * s - (float)worldX, lamp[1] * (1.f - s), lamp[2] + (aim[2] - lamp[2]) * s - (float)worldZ, top);
+		if (!seen)
+			continue;
+		const float depth = std::max(view.r[6] * px + view.r[8] * pz + view.t[2], 1000.f);
+		const float scale = std::sqrt(view.r[0] * view.r[0] + view.r[1] * view.r[1] + view.r[2] * view.r[2]) * view.h / depth;
+		const float dx = foot.sx - top.sx, dy = (foot.sy - top.sy) / LinesPerColumn;
+		const float along = std::sqrt(dx * dx + dy * dy);
+		if (along < 1.f)
+			continue;
+		const float nx = -dy / along * l.radius * scale, ny = dx / along * l.radius * scale * LinesPerColumn;
+		const uint32_t high = glowColour(l.colour[0] * 255.f, l.colour[1] * 255.f, l.colour[2] * 255.f, 0.1f);
+		// nothing along both its sides and at its foot, so no edge shows; narrow at the lamp
+		constexpr float Narrow = 0.12f;
+		const float tx = nx * Narrow, ty = ny * Narrow;
+		list.front.push_back({ { top.sx - tx, top.sx, foot.sx - nx }, { top.sy - ty, top.sy, foot.sy - ny }, { 0, high, 0 } });
+		list.front.push_back({ { top.sx, foot.sx, foot.sx - nx }, { top.sy, foot.sy, foot.sy - ny }, { high, 0, 0 } });
+		list.front.push_back({ { top.sx, top.sx + tx, foot.sx }, { top.sy, top.sy + ty, foot.sy }, { high, 0, 0 } });
+	}
+}
+
 void addFlavour(FighterList& list, const View& view, int32_t worldX, int32_t worldZ, float horizon)
 {
 	addMist(list, horizon);
 	addFloats(list, view, worldX, worldZ);
+	addBeams(list, view, worldX, worldZ);
 }
 
 int onFloorDraw(CPUState *cpu, uint32_t)
