@@ -1247,7 +1247,7 @@ void emitTriangles(const NativeTri *tris, size_t count, bool depth)
 			if (std::max({ x0, x1, x2 }) < (float)ax0 || std::min({ x0, x1, x2 }) > (float)ax1 || std::max({ y0, y1, y2 }) < (float)ay0 ||
 					std::min({ y0, y1, y2 }) > (float)ay1 || (t.kind & 1) != 0)
 				continue;
-			DeadstationTriangle o;
+			DeadstationTriangle o{};
 			o.x[0] = x0, o.x[1] = x1, o.x[2] = x2, o.y[0] = y0, o.y[1] = y1, o.y[2] = y2;
 			for (int j = 0; j < 3; j++)
 				o.z[j] = std::min(t.c[j].z, 65535.f), o.rgb[j] = t.c[j].rgb, o.uv[j] = t.c[j].uv;
