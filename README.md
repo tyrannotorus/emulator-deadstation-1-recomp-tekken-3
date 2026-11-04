@@ -42,6 +42,7 @@ catalog_identity.json   the disc's identity, as PSXRecomp's probe found it
 pipelines.keys      the GPU pipelines it draws, built ahead of use
 CMakeLists.txt      the module's build
 src/plugin.cpp      the module's additions, a plugin inside the game (its hooks: game.toml)
+src/scene_light.*, src/scene.h, src/shaders/   the fighters' lighting, drawn over each frame
 mods/               the plugin's package, which turns it on
 sdk/                the runtime and port layer
 ```

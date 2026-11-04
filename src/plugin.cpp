@@ -19,7 +19,7 @@
 #include "cpu_state.h"
 #include "mod_plugins.h"
 #include "../sdk/brick/host_link.h"
-#include "../sdk/brick/scene.h"
+#include "scene.h"
 #include "../sdk/brick/psx_sdk.h"
 #include "../sdk/brick/replay.h"
 
@@ -3494,7 +3494,6 @@ extern "C" int psx_host_present(const uint32_t *pixels, int width, int height)
 extern "C" void deadstation_module_start(void)
 {
 	setenv("DEADSTATION_TEKKEN3_SCENE", "1", 0);
-	setenv("DEADSTATION_SCENE_LIGHT", "1", 0);
 }
 
 // The settings, as the plugin and the presenter read them. Resolution 2: the game's frames at the panel's own size, VRAM at twice the

@@ -60,6 +60,12 @@ target_sources(psx-runtime PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/plugin.cpp"
 # the Brick: the presenter, no desktop OpenGL (sdk/brick/brick.cmake)
 include("${CMAKE_CURRENT_SOURCE_DIR}/sdk/brick/brick.cmake")
 
+# the fighters' lighting: this game's own, a layer over each frame (src/scene_light.cpp)
+if(COMMAND deadstation_module_shaders)
+    deadstation_module_shaders("${CMAKE_CURRENT_SOURCE_DIR}/src/shaders" scene_shadow.vert scene_flash.vert scene_cast.vert scene_light.vert scene_light.frag scene_flash_floor.frag)
+    deadstation_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src/scene_light.cpp")
+endif()
+
 # Stage runtime configs next to the exe for direct build/ launches. Only copy
 # files that exist — never fail POST_BUILD when game_options.toml is absent.
 foreach(_PSX_RUNTIME_CONFIG game.toml game_options.toml)
