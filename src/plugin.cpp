@@ -57,6 +57,7 @@ extern "C" uint8_t *memory_get_ram_ptr(void);
 #include <cstdlib>
 #include <cstring>
 #include <utility>
+#include <string>
 #include <vector>
 
 extern "C" void psx_dispatch_call(CPUState *cpu, uint32_t addr, uint32_t return_addr);
@@ -314,6 +315,10 @@ constexpr Mood Moods[] = {
 	{ 14, -1, { -1, -1, -1 }, -1, { 1.f, 1.f, 1.f }, { 1.f, 1.f, 1.f }, false, 2, {
 		{ -1700, -3000, 600, { 0.82f, 1.f, 0.9f }, 16, 5500, 0 },
 		{ 1800, -3000, -500, { 0.82f, 1.f, 0.9f }, 16, 5500, 2 } } },
+	// Law's courtyard at dawn: the sun just up, low and gold, long shadows, the sky and stone warm with it
+	{ 1, 92, { 0xFF, 0xAC, 0x48 }, 0xA0, { 1.12f, 0.82f, 0.50f }, { 1.20f, 0.90f, 0.56f }, false, 0, {} },
+	// Lei's street in the rain: a grey sky, the road dark and wet
+	{ 5, -1, { 0xA8, 0xB4, 0xD0 }, -1, { 0.84f, 0.88f, 0.98f }, { 0.68f, 0.72f, 0.84f }, false, 0, {} },
 	// the schoolyard at dusk: a low orange sun, long shadows
 	{ 7, 90, { 0xFF, 0x98, 0x50 }, 0xB0, { 1.08f, 0.86f, 0.72f }, { 1.12f, 0.85f, 0.68f }, false, 0, {} },
 };
@@ -961,8 +966,8 @@ void capture(struct CPUState *cpu, uint32_t record)
 // the ordering table. The backdrop and the floor go to the GPU as the walk of its ordering table starts, at its top entry
 // (patch 0024), before everything: the HUD's bars lie at far entries (0xFC4 down), the game's backdrop and floor farther still.
 // The fighters' at their own entries. Everything nearer is depth tested against them, or (no depth: the HUD) drawn over them.
-// (An entry reached, not its own: // the game's frame end, 0x80029A28, unlinks runs of empty entries, and it reorders the table's halves, so the walk neither
-// visits every entry nor only descends. Every walk starts at the top entry, which is never unlinked.)
+// (An entry reached, not its own: the game's frame end, 0x80029A28, unlinks runs of empty entries, and it reorders the table's halves, so the walk neither
+// visits every entry nor only descends: walkRank. Every entry with packets is visited, and every walk starts at the top entry, which is never unlinked.)
 // DEADSTATION_SDK_OFF=fighters: the game's own part_draw.
 constexpr uint32_t OtTop = 0xFFC;			// the top entry, where a walk starts (GsOT's tag: 1024 entries)
 constexpr uint32_t PartColour = 0x800ADE1C;	// the GTE colour (RGBC) the game lights a part's normals with
@@ -1390,6 +1395,20 @@ void emitStage(FighterList& list)
 	emitGlows(list.mist);
 }
 
+// The order the walk comes to the table's entries. The game's frame end (0x80029A28, below) swaps three links, outside two modes of its own: from the top down to 0xDA4, then the nearer half from
+// 0x7FC down, then the middle from 0xDA0 down to 0x800, and the last entry. So the middle goes over the nearer half: that's where what's announced lies, YOU LOSE, CONTINUE, the practice menus, over
+// the fighters, who are in the nearer half. Going by the entry's number alone put the fighters off to the last entry whenever the nearer half had no packets of its own, over all of that.
+inline uint32_t walkRank(uint32_t entry)
+{
+	if (rw(GameMode) - 7u <= 1u)
+		return 0xFFCu - entry;
+	if (entry > 0xDA0u)
+		return 0xFFCu - entry;
+	if (entry >= 0x800u)
+		return 0x2000u + (0xDA0u - entry);
+	return entry >= 4u ? 0x1000u + (0x7FCu - entry) : 0x3000u;
+}
+
 // if the walk's first packet from this node is one painting the whole screen flat, the node after it; else 0
 uint32_t pastClear(uint32_t node)
 {
@@ -1409,13 +1428,63 @@ uint32_t pastClear(uint32_t node)
 	return 0;
 }
 
+// DEADSTATION_TEKKEN3_WALK (tests): each second, the frame's walk of its table: the entries with packets, in the order reached, and where the fighters' polygons lie
+bool walkLog = false;
+struct WalkRun { uint32_t entry, packets, command; };
+std::vector<WalkRun> walkNow;
+uint32_t walkAtSerial = 0;
+
 void onListNode(uint32_t addr)
 {
 	const uint32_t at = addr & 0x1FFFFC;
+	if (walkLog)
+		for (const FighterList& list : fighterLists)
+		{
+			const uint32_t entry = at - (list.ot & 0x1FFFFC);
+			if (list.ot == 0 || entry > OtTop)
+				continue;
+			if (entry == OtTop && walkAtSerial != frameSerial)
+			{
+				if (frameSerial % 60 < 2 && !walkNow.empty())
+				{
+					uint32_t lo = 0xFFFF, hi = 0;
+					for (const NativeTri& t : list.tris)
+						lo = std::min<uint32_t>(lo, t.entry), hi = std::max<uint32_t>(hi, t.entry);
+					std::string line;
+					char one[48];
+					for (const WalkRun& r : walkNow)
+					{
+						std::snprintf(one, sizeof(one), " %03X:%u:%02X", r.entry, r.packets, r.command);
+						line += one;
+					}
+					std::fprintf(stderr, "deadstation walk: mode %u, %u fighter polygons at %03X..%03X;%s\n", (unsigned)rw(GameMode), (unsigned)list.tris.size(), lo, hi, line.c_str());
+				}
+				walkNow.clear();
+				walkAtSerial = frameSerial;
+			}
+			const uint32_t word = ramWord(at);
+			if (word >> 24 == 0)
+			{
+				// (an entry's own tag holds no packets: what's after it in the chain, up to the next entry, comes as nodes of their own)
+				walkNow.push_back({ entry, 0, 0 });
+			}
+			break;
+		}
 	if (heldBack != nullptr && at == heldBackUntil)
 	{
 		emitStage(*heldBack);
 		heldBack = nullptr;
+	}
+	if (walkLog)
+	{
+		const uint32_t word = ramWord(at);
+		bool inTable = false;
+		for (const FighterList& list : fighterLists)
+			inTable = inTable || (list.ot != 0 && at - (list.ot & 0x1FFFFC) <= OtTop);
+		if (!inTable && word >> 24 != 0 && !walkNow.empty())
+			walkNow.back().packets++, walkNow.back().command = ramWord(at + 4) >> 24;
+		else if (inTable && word >> 24 != 0 && !walkNow.empty())
+			walkNow.back().packets++, walkNow.back().command = ramWord(at + 4) >> 24;
 	}
 	for (FighterList& list : fighterLists)
 	{
@@ -1432,7 +1501,7 @@ void onListNode(uint32_t addr)
 			deadstation_scene_perspective(current);
 			if (current && !list.sorted)
 			{
-				std::stable_sort(list.tris.begin(), list.tris.end(), [](const NativeTri& l, const NativeTri& r) { return l.entry > r.entry; });
+				std::stable_sort(list.tris.begin(), list.tris.end(), [](const NativeTri& l, const NativeTri& r) { return walkRank(l.entry) < walkRank(r.entry); });
 				list.sorted = true;
 			}
 			list.frontDone = false;
@@ -1447,12 +1516,13 @@ void onListNode(uint32_t addr)
 		}
 		if (!current)
 			return;
-		// each fighter polygon at its entry: as the walk reaches an entry, those at it and any farther off (the game's frame
+		// each fighter polygon at its entry: as the walk reaches an entry, those at it and any it would have reached by now (the game's frame
 		// end unlinks empty entries, so a polygon's own may not be reached), so everything without depth lies as the game ordered it
 		if (list.drawn)
 		{
+			const uint32_t rank = walkRank(entry);
 			size_t end = list.fightersDone;
-			while (end < list.tris.size() && list.tris[end].entry >= entry)
+			while (end < list.tris.size() && walkRank(list.tris[end].entry) <= rank)
 				end++;
 			emitTriangles(list.tris.data() + list.fightersDone, end - list.fightersDone, true);
 			list.fightersDone = end;
@@ -2751,13 +2821,12 @@ struct Floating
 	bool fadesUp;			// dimmer the higher it is
 };
 constexpr Floating Floats[] = {
-	{ 1, Float::Flutter, 70, 0xD0, 0xA8, 0x50, 95.f, 130.f, 520.f, 70.f, 430.f, -4300.f, 4300.f, 0.f, false },	// the courtyard: pale falling leaves
 	{ 2, Float::Soft, 90, 0xB8, 0xF0, 0x60, 46.f, 40.f, -30.f, 30.f, 280.f, -2700.f, 4000.f, 1.7f, false },		// the forest: motes of light
 	{ 4, Float::Soft, 300, 0xE0, 0xE8, 0xF8, 36.f, 60.f, 430.f, 20.f, 160.f, -4600.f, 4300.f, 0.f, false },		// the palace: light snow
 	{ 6, Float::Soft, 170, 0xFF, 0x70, 0x18, 34.f, 30.f, -650.f, -20.f, 140.f, -3400.f, 4000.f, 5.f, true },		// the temple: rising embers
 	{ 7, Float::Flutter, 170, 0xFF, 0x98, 0xB4, 62.f, 430.f, 300.f, 120.f, 270.f, -4200.f, 4300.f, 0.f, false },	// the schoolyard: blossom petals
 	{ 8, Float::Soft, 110, 0xA8, 0x98, 0x78, 34.f, 18.f, 26.f, -14.f, 130.f, -3200.f, 3600.f, 0.6f, false },		// the dojo: dust motes
-	{ 12, Float::Rain, 220, 0x78, 0x88, 0xA8, 1.2f, -900.f, 7000.f, 200.f, 0.f, -4800.f, 4300.f, 0.f, false },		// the ruin: rain with the lightning
+	{ 5, Float::Rain, 260, 0x70, 0x80, 0x98, 1.2f, -700.f, 7000.f, 160.f, 0.f, -4800.f, 4300.f, 0.f, false },		// Lei's street: rain through the mist
 	{ 14, Float::Puff, 22, 0x4C, 0x4E, 0x54, 230.f, 40.f, -420.f, 15.f, 150.f, -3000.f, 2800.f, 0.f, true },		// the lab: steam
 };
 
@@ -2777,6 +2846,67 @@ void softSpot(std::vector<DeadstationGlow>& to, float x, float y, float halfWidt
 inline uint32_t glowColour(float r, float g, float b, float k)
 {
 	return (uint32_t)std::min(r * k, 255.f) | (uint32_t)std::min(g * k, 255.f) << 8 | (uint32_t)std::min(b * k, 255.f) << 16;
+}
+
+// A drop landing: a ring opening on the floor and gone, flat in the world, with its true depth, so what stands in front of it hides it
+void addSplash(FighterList& list, const View& view, float x, float z, float t, float strength, float reach)
+{
+	const float radius = reach * (0.18f + 0.82f * t), inner = radius * 0.7f;
+	const uint32_t rgb = glowColour(0x90, 0xA0, 0xC0, (1.f - t) * (1.f - t) * strength);
+	constexpr int Sides = 8;
+	NativeCornerOut p0, q0;
+	if (!view.projectAt(x + radius, -4.f, z, p0) || !view.projectAt(x + inner, -4.f, z, q0))
+		return;
+	for (int k = 1; k <= Sides; k++)
+	{
+		const float a = (float)k * (6.2832f / Sides), ca = std::cos(a), sa = std::sin(a);
+		NativeCornerOut p1, q1;
+		if (!view.projectAt(x + ca * radius, -4.f, z + sa * radius, p1) || !view.projectAt(x + ca * inner, -4.f, z + sa * inner, q1))
+			return;
+		list.front.push_back({ { q0.sx, p0.sx, p1.sx }, { q0.sy, p0.sy, p1.sy }, { 0, rgb, rgb }, { q0.z, p0.z, p1.z } });
+		list.front.push_back({ { q0.sx, p1.sx, q1.sx }, { q0.sy, p1.sy, q1.sy }, { 0, rgb, 0 }, { q0.z, p1.z, q1.z } });
+		p0 = p1, q0 = q1;
+	}
+}
+
+// The hall on Julia's and Heihachi's stage is under a roof, the storm beyond its windows: so it doesn't rain in here, it leaks. A few places in the roof over the fighters, each letting go a
+// drop at its own beat, straight down, each drop ringing out where it lands. The leaks are fixed in the world, in a block repeated over the floor, as the floor's pattern is.
+constexpr int LeakStage = 12, Leaks = 26;
+constexpr float LeakTile = 5200.f, LeakHeight = 4600.f;
+void addLeaks(FighterList& list, const View& view, int32_t worldX, int32_t worldZ, float midX, float midZ)
+{
+	const float now = (float)flavourClock / 60.f;
+	const auto nearest = [](float at, float centre, float tile) { return at + tile * std::round((centre - at) / tile); };
+	for (int i = 0; i < Leaks; i++)
+	{
+		const uint32_t a = mix32((uint32_t)i * 2654435761u + 0x51u), b = mix32(a), c = mix32(b);
+		const float x = nearest((float)(a & 0xFFFF) / 65536.f * LeakTile, midX, LeakTile), z = nearest((float)(b & 0xFFFF) / 65536.f * LeakTile, midZ, LeakTile);
+		// (some drip quickly, some are slow; a drop falls as a thing does, from a stop)
+		const float period = 0.9f + (float)(c & 255u) / 255.f * 2.4f, into = std::fmod(now + (float)((c >> 8) & 255u) * 0.041f, period);
+		constexpr float Gravity = 9000.f;
+		const float fall = 0.5f * Gravity * into * into;
+		NativeCornerOut head;
+		if (fall < LeakHeight)
+		{
+			const float y = -LeakHeight + fall, speed = Gravity * into;
+			if (!view.projectAt(x - (float)worldX, y, z - (float)worldZ, head) || head.z < 200.f)
+				continue;
+			NativeCornerOut tail;
+			const float back = std::min(speed * 0.022f, 260.f);
+			if (!view.projectAt(x - (float)worldX, y - back, z - (float)worldZ, tail))
+				continue;
+			const float w = std::max(0.45f, 9.f * view.h / head.z);
+			const uint32_t rgb = glowColour(0x90, 0xA0, 0xC0, 0.85f);
+			list.front.push_back({ { tail.sx - w, tail.sx + w, head.sx - w }, { tail.sy, tail.sy, head.sy }, { 0, 0, rgb }, { tail.z, tail.z, head.z } });
+			list.front.push_back({ { tail.sx + w, head.sx + w, head.sx - w }, { tail.sy, head.sy, head.sy }, { 0, rgb, rgb }, { tail.z, head.z, head.z } });
+			continue;
+		}
+		// where it lands
+		const float landed = std::sqrt(2.f * LeakHeight / Gravity), since = into - landed;
+		constexpr float RingFor = 0.32f;
+		if (since <= RingFor)
+			addSplash(list, view, x - (float)worldX, z - (float)worldZ, since / RingFor, 0.8f, 210.f);
+	}
 }
 
 void addFloats(FighterList& list, const View& view, int32_t worldX, int32_t worldZ)
@@ -2818,15 +2948,23 @@ void addFloats(FighterList& list, const View& view, int32_t worldX, int32_t worl
 			const float scale = view.h / head.z;
 			if (f.kind == Float::Rain)
 			{
-				// a streak from where it was a moment ago, fading behind it
+				// (just past the lens it would be a bar across the screen, not a drop)
+				if (head.z < 1100.f)
+					continue;
+				// a streak from where it was a moment ago, fading behind it: in the world, tested against what's in the way, and fainter the nearer the eye, as it's more of a blur
 				NativeCornerOut tail;
-				constexpr float Streak = 0.055f;
+				constexpr float Streak = 0.045f;
 				if (!view.projectAt(x - f.vx * Streak - (float)worldX, y - f.vy * Streak, z - f.vz * Streak - (float)worldZ, tail))
 					continue;
-				const float w = std::max(0.4f, f.size * scale * 8.f);
-				const uint32_t rgb = glowColour(f.r, f.g, f.b, k);
-				to.push_back({ { tail.sx - w, tail.sx + w, head.sx - w }, { tail.sy, tail.sy, head.sy }, { 0, 0, rgb } });
-				to.push_back({ { tail.sx + w, head.sx + w, head.sx - w }, { tail.sy, head.sy, head.sy }, { 0, rgb, rgb } });
+				const float w = std::max(0.35f, f.size * scale * 3.5f), near = std::clamp((head.z - 1100.f) / 2400.f, 0.3f, 1.f);
+				const uint32_t rgb = glowColour(f.r, f.g, f.b, k * near);
+				list.front.push_back({ { tail.sx - w, tail.sx + w, head.sx - w }, { tail.sy, tail.sy, head.sy }, { 0, 0, rgb }, { tail.z, tail.z, head.z } });
+				list.front.push_back({ { tail.sx + w, head.sx + w, head.sx - w }, { tail.sy, head.sy, head.sy }, { 0, rgb, rgb }, { tail.z, head.z, head.z } });
+				// and every other one lands: it fell through the floor's level this long ago, a ring where it came down
+				const float since = (y - f.top) / f.vy;
+				constexpr float RingFor = 0.2f;
+				if ((i & 1) == 0 && since < RingFor)
+					addSplash(list, view, x - f.vx * since - (float)worldX, z - f.vz * since - (float)worldZ, since / RingFor, 0.5f, 120.f);
 				continue;
 			}
 			float half = std::clamp(f.size * scale, 0.9f, 60.f), tall = half;
@@ -2846,6 +2984,8 @@ void addFloats(FighterList& list, const View& view, int32_t worldX, int32_t worl
 			softSpot(to, head.sx, head.sy, half, tall * LinesPerColumn, glowColour(f.r, f.g, f.b, k));
 		}
 	}
+	if (currentStage == LeakStage)
+		addLeaks(list, view, worldX, worldZ, midX, midZ);
 	// the fireworks: between the sky and the buildings
 	if (currentStage == FireworkStage)
 	{
@@ -2945,8 +3085,26 @@ void addBeams(FighterList& list, const View& view, int32_t worldX, int32_t world
 	}
 }
 
+// Dawn on Law's stage: the air itself lit gold, added over the backdrop and behind the fighters: deep at the top of the sky, brightest low down where the sun is coming up, gone a little
+// way down the floor.
+constexpr int DawnStage = 1;
+void addDawn(FighterList& list, float horizon)
+{
+	if (currentStage != DawnStage)
+		return;
+	constexpr float Left = -8.f, Right = 376.f, Top = -8.f, Bottom = 496.f;
+	const float below = std::min(horizon + 150.f, Bottom);
+	const auto band = [&](float y0, uint32_t c0, float y1, uint32_t c1) {
+		list.mist.push_back({ { Left, Right, Left }, { y0, y0, y1 }, { c0, c0, c1 } });
+		list.mist.push_back({ { Right, Right, Left }, { y0, y1, y1 }, { c0, c1, c1 } });
+	};
+	band(Top, glowColour(58, 22, 0, 1.f), horizon, glowColour(112, 66, 8, 1.f));
+	band(horizon, glowColour(112, 66, 8, 1.f), below, 0);
+}
+
 void addFlavour(FighterList& list, const View& view, int32_t worldX, int32_t worldZ, float horizon)
 {
+	addDawn(list, horizon);
 	addMist(list, horizon);
 	addFloats(list, view, worldX, worldZ);
 	addBeams(list, view, worldX, worldZ);
@@ -3120,7 +3278,9 @@ int onCompactOt(CPUState *cpu, uint32_t)
 			}
 			else if (open != 0)
 			{
-				psx_mod_write_word(open, word);
+				// (to this entry and not past it, as the game has it, to its first packet: the walk has to come to it, or what's in the fighters' order that lies under them, or
+				// over them, can't be told apart: the fighters' polygons aren't in the table)
+				psx_mod_write_word(open, (ramWord(open) & 0xFF000000u) | (at & 0xFFFFFFu));
 				open = 0;
 			}
 		}
@@ -3255,6 +3415,7 @@ struct Registration
 		if (nativeSdk && (sdkOff == nullptr || std::strstr(sdkOff, "ot") == nullptr))
 			psx_mod_register_function_filter_plugin(Id, CompactOt, onCompactOt);
 		if (nativeFighters)
+			walkLog = std::getenv("DEADSTATION_TEKKEN3_WALK") != nullptr;
 			psx_gpu_list_node_hook = onListNode;
 		// the PlayStation SDK as host code (sdk/brick/psx_sdk.h): Tekken 3's copies (PsyQ 4.1/4.2, signature-matched)
 		psx_mod_register_vblank_plugin(Id, onEveryVBlank);
