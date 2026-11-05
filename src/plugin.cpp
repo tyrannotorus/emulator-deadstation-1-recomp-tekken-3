@@ -1020,7 +1020,6 @@ struct NativeTri
 	uint16_t page, clut;
 	uint8_t kind = 0;		// 0 textured, 1 flat (no texture), bit 1: semi-transparent (its mode from the page)
 	uint16_t entry = 0;		// a fighter's polygon: its entry in the ordering table, by the game's own formula
-	int8_t layer = 0;		// and its bias in that table, kept in depth (32 units a layer)
 };
 // (the backdrop's: painted first with no depth at all, as the game's own table for it is, linked at 0xFC8: its lower walls
 // lie in front of the floor and the fighters in space, and everything else paints over them)
@@ -1199,9 +1198,7 @@ void nativePart(struct CPUState *cpu, uint32_t record, uint32_t packets, uint32_
 	const uint32_t dumpPart = cpu->gpr[4];
 	// the head and its hair: meshes 18 to 21 of the fighter's (records of 0x38 from its first). A head's a few polygons and a painted face: its brow and
 	// its strands of hair, in shadow maps at this size, draw lines and bands across that face, so it takes shadows from further off only
-	// The rest of a fighter takes none from its parts' nearest neighbours either: overlapping shells, a band of skin under a strap, cross in and out of
-	// each other's shadows as it breathes, whole triangles flashing dark.
-	constexpr float HeadSlack = 450.f, BodySlack = 150.f;
+	constexpr float HeadSlack = 450.f;
 	bool head = false;
 	for (const uint32_t fighter : { 0x800A9228u, 0x800AAAB4u, 0x800AC340u })
 	{
@@ -1310,7 +1307,7 @@ void nativePart(struct CPUState *cpu, uint32_t record, uint32_t packets, uint32_
 			const uint16_t entry = (uint16_t)((((int32_t)((uint32_t)fa.z >> 5) + (int32_t)((uint32_t)(quad ? c[3].z : c[1].z) >> 5) - bias) * 2) & 0xFFC);
 			const uint16_t clut = (uint16_t)(ramWord(packet + 3 * 4) >> 16), page = (uint16_t)(ramWord(packet + (uint32_t)uvWord[1] * 4) >> 16) & 0x1FF;
 			auto triangle = [&](int i0, int i1, int i2) {
-				list.tris.push_back({ { c[i0], c[i1], c[i2] }, page, clut, 0, entry, (int8_t)(-bias / 2) });
+				list.tris.push_back({ { c[i0], c[i1], c[i2] }, page, clut, 0, entry });
 				if (modelDump != nullptr)
 				{
 					std::fprintf(modelDump, "%x %d %d %x %x", dumpPart, kind, bias, page, clut);
@@ -1327,7 +1324,7 @@ void nativePart(struct CPUState *cpu, uint32_t record, uint32_t packets, uint32_
 					{
 						const NativeV3& v = vScratch[iv[j]];
 						const NativeColour& nc = cScratch[ic[j] & 255];
-						building.corners.push_back({ c[j].sx, c[j].sy, v.x, v.y * inverseY, v.z, nc.nx, nc.ny, nc.nz, (float)(-bias / 2) * 32.f, head ? HeadSlack : BodySlack });
+						building.corners.push_back({ c[j].sx, c[j].sy, v.x, v.y * inverseY, v.z, nc.nx, nc.ny, nc.nz, head ? HeadSlack : 0.f });
 					}
 			};
 			triangle(0, 1, 2);
@@ -1364,7 +1361,7 @@ void emitTriangles(const NativeTri *tris, size_t count, bool depth)
 			o.x[0] = x0, o.x[1] = x1, o.x[2] = x2, o.y[0] = y0, o.y[1] = y1, o.y[2] = y2;
 			for (int j = 0; j < 3; j++)
 				o.z[j] = std::min(t.c[j].z, 65535.f), o.rgb[j] = t.c[j].rgb, o.uv[j] = t.c[j].uv;
-			o.page = t.page & 0x1FF, o.clut = t.clut, o.raw = 0, o.layer = t.layer;
+			o.page = t.page & 0x1FF, o.clut = t.clut, o.raw = 0;
 			o.semi = (t.kind & 2) != 0 ? (uint8_t)(1 + ((t.page >> 5) & 3)) : 0;
 			out.push_back(o);
 		}

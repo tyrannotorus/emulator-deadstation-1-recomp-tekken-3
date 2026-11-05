@@ -109,7 +109,7 @@ bool SceneLight::init(const Target& t, std::string& error)
 			{ 0, 0, vk::Format::eR32G32Sfloat, offsetof(Corner, sx) },
 			{ 1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Corner, x) },
 			{ 2, 0, vk::Format::eR32G32B32Sfloat, offsetof(Corner, nx) },
-			{ 3, 0, vk::Format::eR32G32Sfloat, offsetof(Corner, nudge) },
+			{ 3, 0, vk::Format::eR32Sfloat, offsetof(Corner, slack) },
 		};
 		vk::PipelineInputAssemblyStateCreateInfo assembly(vk::PipelineInputAssemblyStateCreateFlags(), vk::PrimitiveTopology::eTriangleList);
 		vk::PipelineRasterizationStateCreateInfo raster(vk::PipelineRasterizationStateCreateFlags(), false, false, vk::PolygonMode::eFill,

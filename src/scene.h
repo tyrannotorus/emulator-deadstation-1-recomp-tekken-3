@@ -16,7 +16,6 @@ struct Corner
 	float sx, sy;		// the game's screen pixels
 	float x, y, z;		// view space
 	float nx, ny, nz;	// the surface's normal there (view space, unit)
-	float nudge = 0;	// its depth moved this much for the depth test: what the frame's own triangle was given
 	float slack = 0;	// how far along the sun's light its own casters don't shadow it (a head: its hair, its brow)
 };
 
