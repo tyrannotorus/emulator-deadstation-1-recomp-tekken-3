@@ -91,6 +91,11 @@ constexpr uint32_t FighterShadowMesh = 0x1274;		// fighter -> its shadow mesh (+
 bool stats = false;
 unsigned statShadows = 0, statPolygons = 0, statParts = 0;
 bool sceneCapture = false;		// the fighters' 3D layer for the presenter (per-pixel self-shadowing)
+bool galleryNoShadow = false;	// the model gallery: the models without their shadows on themselves
+// DEADSTATION_TEKKEN3_DUMP=FILE (a dev's tool): each time Start's pressed in the gallery, the next frame's model into FILE.N: a line per triangle
+const char *modelDumpTo = nullptr;
+FILE *modelDump = nullptr;
+int modelDumpWanted = 0, modelDumps = 0;
 uint32_t gameColours[5];	// the game's LC (0x8009E5C0), as the GTE packs it
 void readGameColours();
 
@@ -830,6 +835,19 @@ bool sceneFrame(struct CPUState *cpu, float& ofx, float& ofy, float& h, float& y
 	if (set != sceneSet)
 	{
 		sceneSet = set;
+		if (modelDump != nullptr)
+		{
+			std::fprintf(modelDump, "sun %f %f %f ambient %f\n", building.sun[0], building.sun[1], building.sun[2], building.ambient);
+			std::fclose(modelDump);
+			modelDump = nullptr;
+		}
+		if (modelDumpWanted != 0)
+		{
+			char name[256];
+			std::snprintf(name, sizeof(name), "%s.%d", modelDumpTo, modelDumps++);
+			modelDump = std::fopen(name, "w");
+			modelDumpWanted = 0;
+		}
 		if (!building.corners.empty())
 		{
 			if (testLights > 0)
@@ -881,6 +899,7 @@ bool sceneFrame(struct CPUState *cpu, float& ofx, float& ofy, float& h, float& y
 		const float fill = bright((int)lc[0][2], (int)lc[1][2], (int)lc[2][2]);
 		const float back = bright((int32_t)cpu->gte_ctrl[13], (int32_t)cpu->gte_ctrl[14], (int32_t)cpu->gte_ctrl[15]);
 		building.ambient = sunLight > 0 ? (back + 0.5f * fill) / sunLight : 1.0f;
+		building.darkness = galleryNoShadow ? 0.f : 1.f;
 		flashes(building, cam, yScale, ofx, ofy, h);
 	}
 	headerDone = true;
@@ -1001,6 +1020,7 @@ struct NativeTri
 	uint16_t page, clut;
 	uint8_t kind = 0;		// 0 textured, 1 flat (no texture), bit 1: semi-transparent (its mode from the page)
 	uint16_t entry = 0;		// a fighter's polygon: its entry in the ordering table, by the game's own formula
+	int8_t layer = 0;		// and its bias in that table, kept in depth (32 units a layer)
 };
 // (the backdrop's: painted first with no depth at all, as the game's own table for it is, linked at 0xFC8: its lower walls
 // lie in front of the floor and the fighters in space, and everything else paints over them)
@@ -1176,6 +1196,16 @@ void nativePart(struct CPUState *cpu, uint32_t record, uint32_t packets, uint32_
 	const int32_t matR = material & 0xFF, matG = (material >> 8) & 0xFF, matB = (material >> 16) & 0xFF;
 	// the 3D layer's frame, when it is wanted
 	float layerOfx = 0, layerOfy = 0, layerH = 0, layerY = 1;
+	const uint32_t dumpPart = cpu->gpr[4];
+	// the head and its hair: meshes 18 to 21 of the fighter's (records of 0x38 from its first). A head's a few polygons and a painted face: its brow and
+	// its strands of hair, in shadow maps at this size, draw lines and bands across that face, so it takes shadows from further off only
+	constexpr float HeadSlack = 450.f;
+	bool head = false;
+	for (const uint32_t fighter : { 0x800A9228u, 0x800AAAB4u, 0x800AC340u })
+	{
+		const uint32_t first = rw(fighter + 0x4F8);
+		head = head || (first != 0 && dumpPart >= first + 18 * 0x38 && dumpPart < first + 22 * 0x38);
+	}
 	const bool layer = sceneCapture && sceneFrame(cpu, layerOfx, layerOfy, layerH, layerY);
 	const float inverseY = layer && layerY > 0 ? 1 / layerY : 1, ky = inverseY;
 	p = normalBlock;
@@ -1278,13 +1308,24 @@ void nativePart(struct CPUState *cpu, uint32_t record, uint32_t packets, uint32_
 			const uint16_t entry = (uint16_t)((((int32_t)((uint32_t)fa.z >> 5) + (int32_t)((uint32_t)(quad ? c[3].z : c[1].z) >> 5) - bias) * 2) & 0xFFC);
 			const uint16_t clut = (uint16_t)(ramWord(packet + 3 * 4) >> 16), page = (uint16_t)(ramWord(packet + (uint32_t)uvWord[1] * 4) >> 16) & 0x1FF;
 			auto triangle = [&](int i0, int i1, int i2) {
-				list.tris.push_back({ { c[i0], c[i1], c[i2] }, page, clut, 0, entry });
+				list.tris.push_back({ { c[i0], c[i1], c[i2] }, page, clut, 0, entry, (int8_t)(-bias / 2) });
+				if (modelDump != nullptr)
+				{
+					std::fprintf(modelDump, "%x %d %d %x %x", dumpPart, kind, bias, page, clut);
+					for (int j : { i0, i1, i2 })
+					{
+						const NativeV3& v = vScratch[iv[j]];
+						const NativeColour& nc = cScratch[ic[j] & 255];
+						std::fprintf(modelDump, " %d %d %.1f %.1f %.1f %.3f %.3f %.3f %x", iv[j], c[j].uv, v.x, v.y * inverseY, v.z, nc.nx, nc.ny, nc.nz, c[j].rgb);
+					}
+					std::fputc('\n', modelDump);
+				}
 				if (layer)
 					for (int j : { i0, i1, i2 })
 					{
 						const NativeV3& v = vScratch[iv[j]];
 						const NativeColour& nc = cScratch[ic[j] & 255];
-						building.corners.push_back({ c[j].sx, c[j].sy, v.x, v.y * inverseY, v.z, nc.nx, nc.ny, nc.nz });
+						building.corners.push_back({ c[j].sx, c[j].sy, v.x, v.y * inverseY, v.z, nc.nx, nc.ny, nc.nz, (float)(-bias / 2) * 32.f, head ? HeadSlack : 0.f });
 					}
 			};
 			triangle(0, 1, 2);
@@ -1321,7 +1362,7 @@ void emitTriangles(const NativeTri *tris, size_t count, bool depth)
 			o.x[0] = x0, o.x[1] = x1, o.x[2] = x2, o.y[0] = y0, o.y[1] = y1, o.y[2] = y2;
 			for (int j = 0; j < 3; j++)
 				o.z[j] = std::min(t.c[j].z, 65535.f), o.rgb[j] = t.c[j].rgb, o.uv[j] = t.c[j].uv;
-			o.page = t.page & 0x1FF, o.clut = t.clut, o.raw = 0;
+			o.page = t.page & 0x1FF, o.clut = t.clut, o.raw = 0, o.layer = t.layer;
 			o.semi = (t.kind & 2) != 0 ? (uint8_t)(1 + ((t.page >> 5) & 3)) : 0;
 			out.push_back(o);
 		}
@@ -1804,24 +1845,29 @@ void galleryLoad(int step, bool wholeFighter)
 // what the game sees of the pad: with the gallery on, none of its buttons. Active low.
 uint16_t galleryPad(uint16_t buttons)
 {
-	constexpr uint16_t Select = 1u << 0, Up = 1u << 4, Right = 1u << 5, Down = 1u << 6, Left = 1u << 7, L2 = 1u << 8, R2 = 1u << 9, L1 = 1u << 10, R1 = 1u << 11,
+	constexpr uint16_t Select = 1u << 0, Start = 1u << 3, Up = 1u << 4, Right = 1u << 5, Down = 1u << 6, Left = 1u << 7, L2 = 1u << 8, R2 = 1u << 9, L1 = 1u << 10, R1 = 1u << 11,
 			Triangle = 1u << 12, Circle = 1u << 13, Cross = 1u << 14, Square = 1u << 15;
 	const uint16_t held = (uint16_t)~buttons, pressed = held & galleryLast;
 	galleryLast = buttons;
 	if (rw(MainMode) != 8)
 	{
-		galleryOn = false;
+		galleryOn = galleryNoShadow = false;
 		return buttons;
 	}
 	if (pressed & Select)
-		galleryOn = !galleryOn;
+		galleryOn = !galleryOn, galleryNoShadow = false;
 	if (!galleryOn)
 		return buttons | Select;
-	const uint16_t none = buttons | (Select | Up | Right | Down | Left | L2 | R2 | L1 | R1 | Triangle | Circle | Cross | Square);
+	const uint16_t none = buttons | (Select | Start | Up | Right | Down | Left | L2 | R2 | L1 | R1 | Triangle | Circle | Cross | Square);
 	if (psx_mod_read_half(FightState) != 8)
 		return none;
 	if (rw(PracticeState) == 1)
 		return ++galleryFrame % 12 < 4 ? none & ~Circle : none;
+	if (pressed & Start)
+	{
+		galleryNoShadow = !galleryNoShadow;
+		modelDumpWanted = modelDumpTo != nullptr ? 1 : 0;
+	}
 	if (held & Left) galleryYaw -= 0.035f;
 	if (held & Right) galleryYaw += 0.035f;
 	if (held & Up) galleryPitch = std::min(galleryPitch + 0.02f, 1.5f);
@@ -3580,6 +3626,7 @@ struct Registration
 		unlockAll = std::getenv("DEADSTATION_TEKKEN3_UNLOCK") != nullptr;
 		captureTo = std::getenv("DEADSTATION_TEKKEN3_CAPTURE");
 		profileTo = std::getenv("DEADSTATION_TEKKEN3_PROFILE");
+		modelDumpTo = std::getenv("DEADSTATION_TEKKEN3_DUMP");
 		gallery = std::getenv("DEADSTATION_TEKKEN3_GALLERY") != nullptr;
 		psx_mod_register_function_filter_plugin(Id, 0x80045CA8, onCameraMatrix);
 		psx_mod_register_function_filter_plugin(Id, 0x8003B4F8, onFighterRender);

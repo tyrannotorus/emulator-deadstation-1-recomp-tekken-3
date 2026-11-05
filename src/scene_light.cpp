@@ -105,10 +105,11 @@ bool SceneLight::init(const Target& t, std::string& error)
 		vk::UniqueShaderModule lightFrag = device.createShaderModuleUnique(vk::ShaderModuleCreateInfo(vk::ShaderModuleCreateFlags(),
 				sizeof(scene_light_frag), scene_light_frag));
 		vk::VertexInputBindingDescription binding(0, sizeof(Corner), vk::VertexInputRate::eVertex);
-		vk::VertexInputAttributeDescription attributes[3] = {
+		vk::VertexInputAttributeDescription attributes[4] = {
 			{ 0, 0, vk::Format::eR32G32Sfloat, offsetof(Corner, sx) },
 			{ 1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Corner, x) },
 			{ 2, 0, vk::Format::eR32G32B32Sfloat, offsetof(Corner, nx) },
+			{ 3, 0, vk::Format::eR32G32Sfloat, offsetof(Corner, nudge) },
 		};
 		vk::PipelineInputAssemblyStateCreateInfo assembly(vk::PipelineInputAssemblyStateCreateFlags(), vk::PrimitiveTopology::eTriangleList);
 		vk::PipelineRasterizationStateCreateInfo raster(vk::PipelineRasterizationStateCreateFlags(), false, false, vk::PolygonMode::eFill,
