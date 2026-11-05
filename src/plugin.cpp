@@ -1749,11 +1749,123 @@ constexpr uint32_t PadInitDirect = 0x800946A8, PadStartComEntry = 0x800926F8, Pa
 		PadSetAct = 0x80092B38, PadChkVsync = 0x800926D8;
 uint32_t padBuffer[2] = { 0, 0 };
 
+// The model gallery (a setting, for inspecting models): in a fight, Select hands the pad to one fighter under a camera of the player's, any fighter in
+// any costume, all of it the game's own: the camera's angles and place go in where the game keeps them and it builds the matrix, and a model is loaded
+// by the fight's own load step (0x8002A40C, fight state 3). Nothing's drawn differently from a fight's. The opponent's not drawn. Which is which: the log.
+bool gallery = false, galleryOn = false;
+constexpr uint32_t MainMode = 0x800AE204, FightState = 0x800AE224, P1Character = 0x800ADD5C, P1Costume = 0x800ADD98;
+constexpr uint32_t ModelOfCostume = 0x800958C4, Opponent = 0x800AAAB4;	// ModelOfCostume[fighter * 4 + costume]: the model, or -1
+constexpr int GalleryFighters = 23;
+float galleryYaw = 0.f, galleryPitch = 0.06f, galleryDistance = 6000.f, galleryHeight = -1000.f;
+uint16_t galleryLast = 0xFFFF;
+// Practice's menu is up (1; 2 in Freestyle: read from the game's memory with it up and closed, and after a load, which brings it back). It hides the model,
+// so its first choice (Freestyle) is pressed for the player
+constexpr uint32_t PracticeState = 0x80095474;
+unsigned galleryFrame = 0;
+bool galleryLive()
+{
+	return galleryOn && rw(MainMode) == 8;
+}
+int galleryModel(int fighter, int costume)
+{
+	return (int8_t)psx_mod_read_byte(ModelOfCostume + (uint32_t)(fighter * 4 + costume));
+}
+// a costume that's a model of its own: not a repeat of one of the fighter's earlier costumes
+bool galleryCostumeIsNew(int fighter, int costume)
+{
+	const int model = galleryModel(fighter, costume);
+	if (model < 0)
+		return false;
+	for (int k = 0; k < costume; k++)
+		if (galleryModel(fighter, k) == model)
+			return false;
+	return true;
+}
+// the next model, for the fight's load step: only from a settled fight
+void galleryLoad(int step, bool wholeFighter)
+{
+	if (psx_mod_read_half(FightState) != 8)
+		return;
+	int fighter = (int16_t)psx_mod_read_half(P1Character), costume = (int16_t)psx_mod_read_half(P1Costume) & 3;
+	for (int tries = 0; tries < GalleryFighters * 4; tries++)
+	{
+		if (wholeFighter)
+			fighter = (fighter + step + GalleryFighters) % GalleryFighters, costume = 0;
+		else if ((costume += step) > 3 || costume < 0)
+			fighter = (fighter + step + GalleryFighters) % GalleryFighters, costume = step > 0 ? 0 : 3;
+		if (galleryCostumeIsNew(fighter, costume))
+			break;
+	}
+	std::fprintf(stderr, "deadstation tekken3: gallery: fighter %d, costume %d: model %d\n", fighter, costume, galleryModel(fighter, costume));
+	psx_mod_write_half(P1Character, (uint16_t)fighter);
+	psx_mod_write_half(P1Costume, (uint16_t)costume);
+	psx_mod_write_half(FightState, 3);
+}
+// what the game sees of the pad: with the gallery on, none of its buttons. Active low.
+uint16_t galleryPad(uint16_t buttons)
+{
+	constexpr uint16_t Select = 1u << 0, Up = 1u << 4, Right = 1u << 5, Down = 1u << 6, Left = 1u << 7, L2 = 1u << 8, R2 = 1u << 9, L1 = 1u << 10, R1 = 1u << 11,
+			Triangle = 1u << 12, Circle = 1u << 13, Cross = 1u << 14, Square = 1u << 15;
+	const uint16_t held = (uint16_t)~buttons, pressed = held & galleryLast;
+	galleryLast = buttons;
+	if (rw(MainMode) != 8)
+	{
+		galleryOn = false;
+		return buttons;
+	}
+	if (pressed & Select)
+		galleryOn = !galleryOn;
+	if (!galleryOn)
+		return buttons | Select;
+	const uint16_t none = buttons | (Select | Up | Right | Down | Left | L2 | R2 | L1 | R1 | Triangle | Circle | Cross | Square);
+	if (psx_mod_read_half(FightState) != 8)
+		return none;
+	if (rw(PracticeState) == 1)
+		return ++galleryFrame % 12 < 4 ? none & ~Circle : none;
+	if (held & Left) galleryYaw -= 0.035f;
+	if (held & Right) galleryYaw += 0.035f;
+	if (held & Up) galleryPitch = std::min(galleryPitch + 0.02f, 1.5f);
+	if (held & Down) galleryPitch = std::max(galleryPitch - 0.02f, -1.5f);
+	if (held & L1) galleryDistance = std::max(galleryDistance * 0.985f, 800.f);
+	if (held & R1) galleryDistance = std::min(galleryDistance * 1.015f, 20000.f);
+	if (held & Triangle) galleryHeight -= 15.f;
+	if (held & Cross) galleryHeight += 15.f;
+	if (pressed & Circle) galleryLoad(1, false);
+	if (pressed & Square) galleryLoad(-1, false);
+	if (pressed & R2) galleryLoad(1, true);
+	if (pressed & L2) galleryLoad(-1, true);
+	return none;
+}
+// 0x80045CA8(camera, matrix): a camera (angles at +0, +4, +8, place at +0x14, +0x18, +0x1C) made into the matrix
+int onCameraMatrix(CPUState *cpu, uint32_t)
+{
+	if (!galleryLive() || cpu->gpr[5] != 0x800ADF70)
+		return 0;
+	const float aimX = (float)(int32_t)rw(0x800AA190), aimZ = (float)(int32_t)rw(0x800AA198);
+	const float sy = std::sin(galleryYaw), cy = std::cos(galleryYaw), sp = std::sin(galleryPitch), cp = std::cos(galleryPitch);
+	const uint32_t camera = cpu->gpr[4];
+	constexpr float Units = 4096.f / 6.28318531f;
+	psx_mod_write_word(camera, (uint32_t)(int32_t)(galleryPitch * Units));
+	psx_mod_write_word(camera + 4, (uint32_t)(int32_t)(-galleryYaw * Units));
+	psx_mod_write_word(camera + 8, 0);
+	psx_mod_write_word(camera + 0x14, (uint32_t)(int32_t)(aimX - sy * cp * galleryDistance));
+	psx_mod_write_word(camera + 0x18, (uint32_t)(int32_t)(galleryHeight - sp * galleryDistance));
+	psx_mod_write_word(camera + 0x1C, (uint32_t)(int32_t)(aimZ - cy * cp * galleryDistance));
+	return 0;
+}
+// fighter_render: the opponent's not drawn
+int onFighterRender(CPUState *cpu, uint32_t)
+{
+	return galleryLive() && cpu->gpr[4] == Opponent ? 1 : 0;
+}
+
 void writePads()
 {
 	if (padBuffer[0] != 0)
 	{
-		const uint16_t buttons = sio_get_pad_buttons_slot(0);
+		uint16_t buttons = sio_get_pad_buttons_slot(0);
+		if (gallery)
+			buttons = galleryPad(buttons);
 		psx_mod_write_byte(padBuffer[0], 0x00);
 		psx_mod_write_byte(padBuffer[0] + 1, 0x41);
 		psx_mod_write_byte(padBuffer[0] + 2, (uint8_t)(buttons & 0xFF));
@@ -3468,6 +3580,9 @@ struct Registration
 		unlockAll = std::getenv("DEADSTATION_TEKKEN3_UNLOCK") != nullptr;
 		captureTo = std::getenv("DEADSTATION_TEKKEN3_CAPTURE");
 		profileTo = std::getenv("DEADSTATION_TEKKEN3_PROFILE");
+		gallery = std::getenv("DEADSTATION_TEKKEN3_GALLERY") != nullptr;
+		psx_mod_register_function_filter_plugin(Id, 0x80045CA8, onCameraMatrix);
+		psx_mod_register_function_filter_plugin(Id, 0x8003B4F8, onFighterRender);
 		// Spark Lighting and Fight GUI: applied as they change in Options, the game going on
 		deadstation_live_settings([](const char *key, const char *value) {
 			if (std::strcmp(key, "sparks") == 0)
@@ -3480,6 +3595,12 @@ struct Registration
 			{
 				if (value != nullptr)
 					hideGui = std::strcmp(value, "hide") == 0;
+				return true;
+			}
+			if (std::strcmp(key, "gallery") == 0)
+			{
+				if (value != nullptr)
+					gallery = std::strcmp(value, "on") == 0, galleryOn = galleryOn && gallery;
 				return true;
 			}
 			if (std::strcmp(key, "unlock") == 0)
@@ -3664,6 +3785,11 @@ extern "C" void deadstation_module_setting(const char *key, const char *value)
 	{
 		if (std::strcmp(value, "hide") == 0)
 			setenv("DEADSTATION_TEKKEN3_GUI", "hide", 0);
+	}
+	else if (std::strcmp(key, "gallery") == 0)
+	{
+		if (std::strcmp(value, "on") == 0)
+			setenv("DEADSTATION_TEKKEN3_GALLERY", "1", 0);
 	}
 	else if (std::strcmp(key, "sparks") == 0)
 		setenv("DEADSTATION_TEKKEN3_SPARKS", value, 0);
