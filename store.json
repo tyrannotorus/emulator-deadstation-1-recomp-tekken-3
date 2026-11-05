@@ -18,11 +18,7 @@
     "Remappable controls"
   ],
   "changelog": [
-    "Smooth movies in Theater and endings",
-    "Model Gallery setting",
-    "Fixed Julia's speckled costume",
-    "Fixed shadow lines on faces",
-    "Lab puffs removed; fireworks fixed"
+    "Removed the Model Gallery setting"
   ],
   "repo": "https://github.com/tyrannotorus/emulator-deadstation-1-recomp-tekken-3"
 }
