@@ -1028,7 +1028,7 @@ struct FighterList
 {
 	std::vector<NativeTri> tris;
 	std::vector<NativeTri> backdrop;	// no depth, over the floor's far edge
-	std::vector<NativeTri> sky;			// the amusement park's: under the backdrop, so the fireworks can go between
+	std::vector<NativeTri> sky;			// the amusement park's: under the backdrop
 	std::vector<DeadstationGlow> fireworks;
 	std::vector<NativeTri> stage;		// the floor, with depth
 	std::vector<DeadstationGlow> mist;	// a stage's ground mist and what floats behind the fighters: over the floor
@@ -1199,7 +1199,9 @@ void nativePart(struct CPUState *cpu, uint32_t record, uint32_t packets, uint32_
 	const uint32_t dumpPart = cpu->gpr[4];
 	// the head and its hair: meshes 18 to 21 of the fighter's (records of 0x38 from its first). A head's a few polygons and a painted face: its brow and
 	// its strands of hair, in shadow maps at this size, draw lines and bands across that face, so it takes shadows from further off only
-	constexpr float HeadSlack = 450.f;
+	// The rest of a fighter takes none from its parts' nearest neighbours either: overlapping shells, a band of skin under a strap, cross in and out of
+	// each other's shadows as it breathes, whole triangles flashing dark.
+	constexpr float HeadSlack = 450.f, BodySlack = 150.f;
 	bool head = false;
 	for (const uint32_t fighter : { 0x800A9228u, 0x800AAAB4u, 0x800AC340u })
 	{
@@ -1325,7 +1327,7 @@ void nativePart(struct CPUState *cpu, uint32_t record, uint32_t packets, uint32_
 					{
 						const NativeV3& v = vScratch[iv[j]];
 						const NativeColour& nc = cScratch[ic[j] & 255];
-						building.corners.push_back({ c[j].sx, c[j].sy, v.x, v.y * inverseY, v.z, nc.nx, nc.ny, nc.nz, (float)(-bias / 2) * 32.f, head ? HeadSlack : 0.f });
+						building.corners.push_back({ c[j].sx, c[j].sy, v.x, v.y * inverseY, v.z, nc.nx, nc.ny, nc.nz, (float)(-bias / 2) * 32.f, head ? HeadSlack : BodySlack });
 					}
 			};
 			triangle(0, 1, 2);
@@ -1437,8 +1439,8 @@ void emitStage(FighterList& list)
 	{
 		emitTriangles(list.stage.data(), list.stage.size(), true);
 		emitTriangles(list.sky.data(), list.sky.size(), false);
-		emitGlows(list.fireworks);
 		emitTriangles(list.backdrop.data(), list.backdrop.size(), false);
+		emitGlows(list.fireworks);
 	}
 	emitGlows(list.mist);
 }
@@ -3248,7 +3250,7 @@ void addFloats(FighterList& list, const View& view, int32_t worldX, int32_t worl
 	}
 	if (currentStage == LeakStage)
 		addLeaks(list, view, worldX, worldZ, midX, midZ);
-	// the fireworks: between the sky and the buildings
+	// the fireworks: over the whole background, so its buildings don't cut them off
 	if (currentStage == FireworkStage)
 	{
 		static constexpr float Every[Fireworks] = { 4.7f, 6.1f, 8.3f };
