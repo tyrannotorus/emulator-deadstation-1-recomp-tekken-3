@@ -2863,24 +2863,31 @@ inline uint32_t glowColour(float r, float g, float b, float k)
 	return (uint32_t)std::min(r * k, 255.f) | (uint32_t)std::min(g * k, 255.f) << 8 | (uint32_t)std::min(b * k, 255.f) << 16;
 }
 
-// A drop landing: a ring opening on the floor and gone, flat in the world, with its true depth, so what stands in front of it hides it
-void addSplash(FighterList& list, const View& view, float x, float z, float t, float strength, float reach)
+// A drop landing: a ripple opening on the floor and gone: a soft band fading out to both sides, flat in the world, so what stands in front of it
+// hides it (a little nearer than the floor, or the floor hides it). The same on every stage it rains or leaks on.
+constexpr float SplashFor = 0.45f;
+void addSplash(FighterList& list, const View& view, float x, float z, float t)
 {
-	const float radius = reach * (0.18f + 0.82f * t), inner = radius * 0.7f;
-	const uint32_t rgb = glowColour(0x90, 0xA0, 0xC0, (1.f - t) * (1.f - t) * strength);
-	constexpr int Sides = 8;
-	NativeCornerOut p0, q0;
-	if (!view.projectAt(x + radius, -4.f, z, p0) || !view.projectAt(x + inner, -4.f, z, q0))
+	constexpr float Reach = 190.f, Strength = 1.f, Nearer = 0.985f;
+	const float radius = Reach * (0.2f + 0.8f * t), inner = radius * 0.72f, outer = radius * 1.12f;
+	const uint32_t rgb = glowColour(0x90, 0xA0, 0xC0, (1.f - t) * Strength);
+	constexpr int Sides = 10;
+	NativeCornerOut in0, mid0, out0;
+	if (!view.projectAt(x + inner, -4.f, z, in0) || !view.projectAt(x + radius, -4.f, z, mid0) || !view.projectAt(x + outer, -4.f, z, out0))
 		return;
 	for (int k = 1; k <= Sides; k++)
 	{
 		const float a = (float)k * (6.2832f / Sides), ca = std::cos(a), sa = std::sin(a);
-		NativeCornerOut p1, q1;
-		if (!view.projectAt(x + ca * radius, -4.f, z + sa * radius, p1) || !view.projectAt(x + ca * inner, -4.f, z + sa * inner, q1))
+		NativeCornerOut in1, mid1, out1;
+		if (!view.projectAt(x + ca * inner, -4.f, z + sa * inner, in1) || !view.projectAt(x + ca * radius, -4.f, z + sa * radius, mid1) ||
+				!view.projectAt(x + ca * outer, -4.f, z + sa * outer, out1))
 			return;
-		list.front.push_back({ { q0.sx, p0.sx, p1.sx }, { q0.sy, p0.sy, p1.sy }, { 0, rgb, rgb }, { q0.z, p0.z, p1.z } });
-		list.front.push_back({ { q0.sx, p1.sx, q1.sx }, { q0.sy, p1.sy, q1.sy }, { 0, rgb, 0 }, { q0.z, p1.z, q1.z } });
-		p0 = p1, q0 = q1;
+		const float zi0 = in0.z * Nearer, zm0 = mid0.z * Nearer, zo0 = out0.z * Nearer, zi1 = in1.z * Nearer, zm1 = mid1.z * Nearer, zo1 = out1.z * Nearer;
+		list.front.push_back({ { in0.sx, mid0.sx, mid1.sx }, { in0.sy, mid0.sy, mid1.sy }, { 0, rgb, rgb }, { zi0, zm0, zm1 } });
+		list.front.push_back({ { in0.sx, mid1.sx, in1.sx }, { in0.sy, mid1.sy, in1.sy }, { 0, rgb, 0 }, { zi0, zm1, zi1 } });
+		list.front.push_back({ { mid0.sx, out0.sx, out1.sx }, { mid0.sy, out0.sy, out1.sy }, { rgb, 0, 0 }, { zm0, zo0, zo1 } });
+		list.front.push_back({ { mid0.sx, out1.sx, mid1.sx }, { mid0.sy, out1.sy, mid1.sy }, { rgb, 0, rgb }, { zm0, zo1, zm1 } });
+		in0 = in1, mid0 = mid1, out0 = out1;
 	}
 }
 
@@ -2918,9 +2925,8 @@ void addLeaks(FighterList& list, const View& view, int32_t worldX, int32_t world
 		}
 		// where it lands
 		const float landed = std::sqrt(2.f * LeakHeight / Gravity), since = into - landed;
-		constexpr float RingFor = 0.32f;
-		if (since <= RingFor)
-			addSplash(list, view, x - (float)worldX, z - (float)worldZ, since / RingFor, 0.8f, 210.f);
+		if (since <= SplashFor)
+			addSplash(list, view, x - (float)worldX, z - (float)worldZ, since / SplashFor);
 	}
 }
 
@@ -2945,6 +2951,14 @@ void addFloats(FighterList& list, const View& view, int32_t worldX, int32_t worl
 			const float x = around((float)(a & 0xFFFF) + f.vx * now + f.sway * std::sin(now * 0.7f + phase), midX - f.box, 2.f * f.box);
 			const float z = around((float)(b & 0xFFFF) + f.vz * now + f.sway * std::cos(now * 0.53f + phase), midZ - f.box, 2.f * f.box);
 			const float y = around((float)(c >> 16) + f.vy * now, f.top, -f.top);
+			// every other drop lands: it fell through the floor's level this long ago, when it went back to the top, so a ring where it came down
+			// (first: the drop itself is far above the screen by then, and is passed over just below)
+			if (f.kind == Float::Rain && (i & 1) == 0)
+			{
+				const float since = (y - f.top) / f.vy;
+				if (since < SplashFor)
+					addSplash(list, view, x - f.vx * since - (float)worldX, z - f.vz * since - (float)worldZ, since / SplashFor);
+			}
 			NativeCornerOut head;
 			if (!view.projectAt(x - (float)worldX, y, z - (float)worldZ, head) || head.z < 200.f)
 				continue;
@@ -2975,11 +2989,6 @@ void addFloats(FighterList& list, const View& view, int32_t worldX, int32_t worl
 				const uint32_t rgb = glowColour(f.r, f.g, f.b, k * near);
 				list.front.push_back({ { tail.sx - w, tail.sx + w, head.sx - w }, { tail.sy, tail.sy, head.sy }, { 0, 0, rgb }, { tail.z, tail.z, head.z } });
 				list.front.push_back({ { tail.sx + w, head.sx + w, head.sx - w }, { tail.sy, head.sy, head.sy }, { 0, rgb, rgb }, { tail.z, head.z, head.z } });
-				// and every other one lands: it fell through the floor's level this long ago, a ring where it came down
-				const float since = (y - f.top) / f.vy;
-				constexpr float RingFor = 0.2f;
-				if ((i & 1) == 0 && since < RingFor)
-					addSplash(list, view, x - f.vx * since - (float)worldX, z - f.vz * since - (float)worldZ, since / RingFor, 0.5f, 120.f);
 				continue;
 			}
 			float half = std::clamp(f.size * scale, 0.9f, 60.f), tall = half;

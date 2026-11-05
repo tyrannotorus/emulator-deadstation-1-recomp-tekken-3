@@ -18,10 +18,7 @@
     "Remappable controls"
   ],
   "changelog": [
-    "Same pace as the emulator: 59.85 Hz.",
-    "Sound is never stretched, and no longer tied to the frame rate.",
-    "CD music reads ahead, so it can't run out.",
-    "A shorter feature list."
+    "Ripples on the floor where rain and leaks land."
   ],
   "repo": "https://github.com/tyrannotorus/emulator-deadstation-1-recomp-tekken-3"
 }
