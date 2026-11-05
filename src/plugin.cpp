@@ -1,3 +1,9 @@
+#include <sys/syscall.h>
+#include <sys/time.h>
+#include <ucontext.h>
+#include <signal.h>
+#include <unistd.h>
+#include <atomic>
 // Deadstation's plugin in the Tekken 3 recomp module (PSXRecomp's trusted static plugins: runtime/include/
 // mod_plugins.h), activated by mods/preloaded/packages/deadstation.tekken3. Hooks at the game's own functions
 // (symbols/game_names.tsv), listed in game.toml's mod_function_entry_funcs.
@@ -2401,9 +2407,89 @@ int onStGetNext(CPUState *, uint32_t)
 	return 0;
 }
 
+// DEADSTATION_TEKKEN3_CAPTURE=FILE (a dev's tool): what's running interpreted, written every 5 s for overlays/overlay_captures.json
+// (sdk/psxrecomp/tools; merge_captures.py). The runtime starts capturing at a CD DMA, and there are none here. With how much of it there is.
+extern "C" {
+int overlay_capture_set_path(const char *path);
+void overlay_capture_set_enabled(int enabled);
+void overlay_capture_on_dma(uint32_t load_addr, uint32_t size, const uint8_t *bytes);
+void overlay_capture_write_json(void);
+extern uint64_t g_dirty_ram_insns_run;
+}
+const char *captureTo = nullptr;
+void captureTick()
+{
+	static unsigned blanks = 0;
+	static uint64_t lastInstructions = 0;
+	if (++blanks % 300 != 0)
+		return;
+	static bool started = false;
+	if (!started)
+	{
+		started = true;
+		overlay_capture_set_path(captureTo);
+		overlay_capture_set_enabled(1);
+	}
+	overlay_capture_on_dma(0x1F0000, 4, g_psx_ram + 0x1F0000);
+	overlay_capture_write_json();
+	std::fprintf(stderr, "deadstation tekken3: interpreted %llu instructions in these 300 blanks\n", (unsigned long long)(g_dirty_ram_insns_run - lastInstructions));
+	lastInstructions = g_dirty_ram_insns_run;
+}
+
+// DEADSTATION_TEKKEN3_PROFILE=FILE (a dev's tool): where the game's thread spends its time: samples of its PC, a file for every 300 blanks
+// (FILE.N: offset in the binary, samples)
+const char *profileTo = nullptr;
+pid_t profileThread = 0;
+constexpr size_t ProfileMax = 1 << 16;
+uintptr_t *profilePcs = nullptr;
+std::atomic<size_t> profileCount { 0 };
+extern "C" char __executable_start;
+void profileSample(int, siginfo_t *, void *context)
+{
+	if ((pid_t)syscall(SYS_gettid) != profileThread)
+		return;
+	const size_t i = profileCount.load(std::memory_order_relaxed);
+	if (i < ProfileMax)
+	{
+		profilePcs[i] = (uintptr_t)static_cast<ucontext_t *>(context)->uc_mcontext.pc;
+		profileCount.store(i + 1, std::memory_order_relaxed);
+	}
+}
+void profileTick()
+{
+	static unsigned blanks = 0, files = 0;
+	if (profilePcs == nullptr)
+	{
+		profilePcs = new uintptr_t[ProfileMax];
+		profileThread = (pid_t)syscall(SYS_gettid);
+		struct sigaction sa {};
+		sa.sa_sigaction = profileSample;
+		sa.sa_flags = SA_SIGINFO | SA_RESTART;
+		sigemptyset(&sa.sa_mask);
+		sigaction(SIGPROF, &sa, nullptr);
+		itimerval every { { 0, 1000 }, { 0, 1000 } };
+		setitimer(ITIMER_PROF, &every, nullptr);
+	}
+	if (++blanks % 300 != 0)
+		return;
+	const size_t n = profileCount.exchange(0);
+	char name[256];
+	std::snprintf(name, sizeof(name), "%s.%u", profileTo, files++);
+	if (FILE *f = std::fopen(name, "w"))
+	{
+		for (size_t i = 0; i < n; i++)
+			std::fprintf(f, "%zx\n", profilePcs[i] - (uintptr_t)&__executable_start);
+		std::fclose(f);
+	}
+}
+
 // each vertical blank: the sectors the drive would have reached
 void onDriveVBlank()
 {
+	if (captureTo != nullptr)
+		captureTick();
+	if (profileTo != nullptr)
+		profileTick();
 	static unsigned blanks = 0;
 	if (++blanks % 600 == 0)
 		std::fprintf(stderr, "deadstation tekken3: so far %u XA sectors, %u audio track sectors, %u movie frames\n", driveXaSectors,
@@ -3380,6 +3466,8 @@ struct Registration
 		if (const char *gui = std::getenv("DEADSTATION_TEKKEN3_GUI"))
 			hideGui = std::strcmp(gui, "hide") == 0;
 		unlockAll = std::getenv("DEADSTATION_TEKKEN3_UNLOCK") != nullptr;
+		captureTo = std::getenv("DEADSTATION_TEKKEN3_CAPTURE");
+		profileTo = std::getenv("DEADSTATION_TEKKEN3_PROFILE");
 		// Spark Lighting and Fight GUI: applied as they change in Options, the game going on
 		deadstation_live_settings([](const char *key, const char *value) {
 			if (std::strcmp(key, "sparks") == 0)
