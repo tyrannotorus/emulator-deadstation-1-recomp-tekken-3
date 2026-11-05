@@ -331,11 +331,12 @@ inline uint32_t mix32(uint32_t v)
 	return v;
 }
 
-// The amusement park's fireworks (stage 3): a few bursts on their own beats, each opening in the sky ahead of the camera as it is then and
+// The amusement park's fireworks (stage 3): a few bursts on their own beats, each opening high in the sky the way the camera faces then and
 // from then on a place in the world, a ball of sparks the camera pans and tilts across, behind the buildings and in front of the sky; each
 // its colour, and a flash of that light on the floor and the fighters as it opens
 constexpr int FireworkStage = 3, Fireworks = 3;
 constexpr float FireworkLife = 1.7f, FireworkDistance = 26000.f;
+constexpr float FireworkDepth = FireworkDistance + 3000.f;	// from a camera behind the fighters
 struct Firework
 {
 	bool live;
@@ -2820,7 +2821,7 @@ void addMist(FighterList& list, float horizon)
 // What floats in a stage (no setting: a stage's flavour): soft spots of added light, each with its place in the world from a number
 // and the clock alone, so nothing is kept and nothing of the game's is touched. Each stays where it is in the world as the fighters
 // move, coming round again past the edge of a box about them; one nearer the eye than they are is drawn over them.
-enum class Float : uint8_t { Soft, Flutter, Rain, Puff };
+enum class Float : uint8_t { Soft, Flutter, Rain };
 struct Floating
 {
 	int stage;
@@ -2842,7 +2843,6 @@ constexpr Floating Floats[] = {
 	{ 7, Float::Flutter, 170, 0xFF, 0x98, 0xB4, 62.f, 430.f, 300.f, 120.f, 270.f, -4200.f, 4300.f, 0.f, false },	// the schoolyard: blossom petals
 	{ 8, Float::Soft, 110, 0xA8, 0x98, 0x78, 34.f, 18.f, 26.f, -14.f, 130.f, -3200.f, 3600.f, 0.6f, false },		// the dojo: dust motes
 	{ 5, Float::Rain, 260, 0x70, 0x80, 0x98, 1.2f, -700.f, 7000.f, 160.f, 0.f, -4800.f, 4300.f, 0.f, false },		// Lei's street: rain through the mist
-	{ 14, Float::Puff, 22, 0x4C, 0x4E, 0x54, 230.f, 40.f, -420.f, 15.f, 150.f, -3000.f, 2800.f, 0.f, true },		// the lab: steam
 };
 
 // a soft spot: brightest at its middle, nothing at its edge. The game's screen has more lines than columns for the same distance.
@@ -2999,12 +2999,6 @@ void addFloats(FighterList& list, const View& view, int32_t worldX, int32_t worl
 				half *= 0.35f + 0.65f * turn;
 				tall *= 0.45f + 0.55f * (1.f - turn);
 			}
-			else if (f.kind == Float::Puff)
-			{
-				// spreading as it rises
-				const float spread = 0.5f + 1.5f * height;
-				half = std::min(half * spread, 90.f), tall = std::min(tall * spread, 90.f);
-			}
 			softSpot(to, head.sx, head.sy, half, tall * LinesPerColumn, glowColour(f.r, f.g, f.b, k));
 		}
 	}
@@ -3028,7 +3022,7 @@ void addFloats(FighterList& list, const View& view, int32_t worldX, int32_t worl
 			}
 			if (!fw.live || fw.round != round)
 			{
-				// where it opens: ahead of the camera, a little to one side or the other, as high as the sky shows on the screen now
+				// where it opens: the way the camera faces, a little to one side or the other
 				fw.live = true, fw.round = round;
 				fw.seed = mix32(round * 7919u + (uint32_t)i * 104729u);
 				const float flat = std::max(std::sqrt(view.r[6] * view.r[6] + view.r[8] * view.r[8]), 0.001f);
@@ -3036,14 +3030,14 @@ void addFloats(FighterList& list, const View& view, int32_t worldX, int32_t worl
 				const float turn = ((float)(fw.seed & 1023u) / 1023.f - 0.5f) * 1.1f, c = std::cos(turn), s = std::sin(turn);
 				fw.dirX = aheadX * c + aheadZ * s, fw.dirZ = aheadZ * c - aheadX * s;
 				fw.x = midX + fw.dirX * FireworkDistance, fw.z = midZ + fw.dirZ * FireworkDistance;
-				const float px = fw.x - (float)worldX, pz = fw.z - (float)worldZ;
-				const float depth = std::max(view.r[6] * px + view.r[8] * pz + view.t[2], 1000.f);
-				const float line = 14.f + (float)((fw.seed >> 9) % 44u);	// (the strip of sky over the arcade)
-				const float up = view.r[4] != 0 ? view.r[4] : 1.f;
-				fw.y = ((line - view.ofy) * depth / view.h - view.t[1] - view.r[3] * px - view.r[5] * pz) / up;
-				// (about 28 of the screen's columns across its middle, whatever the camera's scale)
-				const float scale = std::max(std::sqrt(view.r[0] * view.r[0] + view.r[1] * view.r[1] + view.r[2] * view.r[2]) * view.h / depth, 0.0001f);
-				fw.radius = 28.f / scale;
+				// How high and how big: as far up the sky as the strip over the arcade is from a level camera, whichever way this one is looking. Worked
+				// out from where it's looking, a camera looking down at a fallen fighter had them open in front of it, on the floor, like stickers.
+				const float rowY = std::max(std::sqrt(view.r[3] * view.r[3] + view.r[4] * view.r[4] + view.r[5] * view.r[5]), 0.001f);
+				const float rowX = std::max(std::sqrt(view.r[0] * view.r[0] + view.r[1] * view.r[1] + view.r[2] * view.r[2]), 0.001f);
+				const float line = 14.f + (float)((fw.seed >> 9) % 44u);
+				fw.y = (line - view.ofy) * FireworkDepth / view.h / rowY;
+				// (about 28 of the screen's columns across its middle)
+				fw.radius = 28.f * FireworkDepth / (rowX * view.h);
 				std::memcpy(fw.colour, Colours[(fw.seed >> 18) % 6u], sizeof(fw.colour));
 			}
 			const float life = 1.f - fw.age / FireworkLife, opened = 1.f - std::exp(-2.6f * fw.age);
