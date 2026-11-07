@@ -3,6 +3,11 @@
 Tekken 3 (Namco, 1998), statically recompiled for the TrimUI Brick. Deadstation 1.0.0 or newer hosts it when the game's Core is set to
 it: Deadstation's menu, Options and Recomp Store stay Deadstation's, and this module is the game.
 
+<img width="1024" height="768" alt="Tekken 3 (US) recomp 19761108-051948 66" src="https://github.com/user-attachments/assets/1072295c-109b-49e9-ad6e-b57a28415728" />
+<img width="1024" height="768" alt="Tekken 3 (US) recomp 19761108-051737 20" src="https://github.com/user-attachments/assets/69458530-b3ae-43e8-bf51-aab1a6347271" />
+<img width="1024" height="768" alt="Tekken 3 (US) recomp 19761108-051959 70" src="https://github.com/user-attachments/assets/eec37f78-8024-4742-b241-6bf1317fbb1d" />
+<img width="1024" height="768" alt="Tekken 3 (US) recomp 19761108-051717 13" src="https://github.com/user-attachments/assets/32a03ebb-33ba-472a-acdb-c81eae748cb3" />
+
 ## Supported Formats
 
 | Region | Format | SHA-1 |
